@@ -9,8 +9,8 @@ output "instance_id" {
 }
 
 output "instance_external_ip" {
-  description = "External IP addresses via Cloud NAT"
-  value       = google_compute_router_nat.nat.nat_ips
+  description = "External IP address of the TDX instance"
+  value       = try(google_compute_instance.notary_instance.network_interface[0].access_config[0].nat_ip, "No external IP")
 }
 
 output "instance_internal_ip" {
@@ -47,4 +47,14 @@ output "trustauthority_evidence_test" {
 output "trustauthority_token_test" {
   description = "Command to test Intel Trust Authority token generation"
   value       = "gcloud compute ssh test-notary-instance --zone=us-central1-a --command='sudo trustauthority-cli token --tdx --tpm -c /home/livy/config.json'"
+}
+
+output "tls_notary_endpoint" {
+  description = "TLS Notary server endpoint URL"
+  value       = try("http://${google_compute_instance.notary_instance.network_interface[0].access_config[0].nat_ip}:7047", "No external IP configured")
+}
+
+output "tls_notary_https_endpoint" {
+  description = "TLS Notary server HTTPS endpoint URL"
+  value       = var.domain_name != "" ? "https://${var.domain_name}" : "Domain not configured"
 }

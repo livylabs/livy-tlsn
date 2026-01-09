@@ -40,6 +40,10 @@ resource "google_compute_instance" "notary_instance" {
   network_interface {
     network    = google_compute_network.vpc.name
     subnetwork = google_compute_subnetwork.subnet.name
+    
+    access_config {
+      // Ephemeral external IP
+    }
   }
 
   metadata = {
@@ -47,9 +51,11 @@ resource "google_compute_instance" "notary_instance" {
     user-data = templatefile("${path.module}/cloud-init.yaml", {
       trustauthority_api_key = var.trustauthority_api_key
       environment           = var.environment
+      domain_name          = var.domain_name
       core_script_b64      = base64encode(file("${path.module}/scripts/core.sh"))
       install_script_b64   = base64encode(file("${path.module}/scripts/install.sh"))
       run_script_b64       = base64encode(file("${path.module}/scripts/run.sh"))
+      https_script_b64     = base64encode(file("${path.module}/scripts/setup-https.sh"))
     })
   }
 
@@ -150,6 +156,20 @@ resource "google_compute_firewall" "allow_notary" {
   }
 
   source_ranges = var.allowed_notary_sources
+  target_tags   = ["notary-instance"]
+}
+
+# Firewall rule for HTTPS
+resource "google_compute_firewall" "allow_https" {
+  name    = "${var.environment}-allow-https"
+  network = google_compute_network.vpc.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["443", "80"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
   target_tags   = ["notary-instance"]
 }
 

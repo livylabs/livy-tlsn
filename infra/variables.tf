@@ -87,3 +87,9 @@ variable "allowed_notary_sources" {
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
+
+variable "domain_name" {
+  description = "Domain name for the TLS Notary server (for HTTPS setup)"
+  type        = string
+  default     = ""
+}

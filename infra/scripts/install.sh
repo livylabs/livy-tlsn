@@ -39,13 +39,19 @@ cd /home/livy
 mkdir -p src
 cd src
 if [ ! -d "tlsn" ]; then
-  git clone https://github.com/tlsnotary/tlsn.git
+  git clone https://github.com/livylabs/tlsn.git
   cd tlsn
-  # Use latest stable version (adjust as needed)
-  git checkout tags/v0.1.0 || git checkout main
-  echo "✅ TLS Notary source code downloaded"
+  # Use main branch from livylabs fork
+  git checkout main
+  echo "✅ Livy Labs TLS Notary source code downloaded"
 else
-  echo "✅ TLS Notary source code already exists, skipping download"
+  echo "✅ TLS Notary source code already exists, updating to livylabs fork..."
+  cd tlsn
+  git remote set-url origin https://github.com/livylabs/tlsn.git
+  git fetch origin
+  git checkout main
+  git pull origin main
+  echo "✅ Updated to livylabs/tlsn fork"
 fi
 '
 

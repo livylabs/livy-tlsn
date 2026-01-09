@@ -29,12 +29,18 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${run_script_b64}
+  
+  - path: /opt/scripts/setup-https.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${https_script_b64}
 
 runcmd:
-  # Execute the three-phase setup
+  # Execute the four-phase setup
   - /opt/scripts/core.sh
   - /opt/scripts/install.sh
   - /opt/scripts/run.sh
+  - /opt/scripts/setup-https.sh ${domain_name} admin@livylabs.xyz
 
 final_message: |
   Infrastructure Ready!
