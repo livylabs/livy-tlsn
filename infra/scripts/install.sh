@@ -41,16 +41,16 @@ cd src
 if [ ! -d "tlsn" ]; then
   git clone https://github.com/livylabs/tlsn.git
   cd tlsn
-  # Use main branch from livylabs fork
-  git checkout main
+  # Use tee_dev branch from livylabs fork
+  git checkout tee_dev
   echo "✅ Livy Labs TLS Notary source code downloaded"
 else
   echo "✅ TLS Notary source code already exists, updating to livylabs fork..."
   cd tlsn
   git remote set-url origin https://github.com/livylabs/tlsn.git
   git fetch origin
-  git checkout main
-  git pull origin main
+  git checkout tee_dev
+  git pull origin tee_dev
   echo "✅ Updated to livylabs/tlsn fork"
 fi
 '
