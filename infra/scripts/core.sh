@@ -56,5 +56,11 @@ echo "}" >> config.json
 echo "✅ Intel Trust Authority config created with environment variable"
 '
 
+# Configure passwordless sudo for livy user to run trustauthority-cli
+echo "🔧 Configuring sudo access for trustauthority-cli..."
+echo "livy ALL=(ALL) NOPASSWD: /usr/bin/trustauthority-cli" > /etc/sudoers.d/livy-trustauthority
+chmod 440 /etc/sudoers.d/livy-trustauthority
+echo "✅ Sudo access configured for livy user"
+
 echo "✅ Core Infrastructure Setup Complete!"
 

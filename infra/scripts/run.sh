@@ -65,7 +65,7 @@ echo "Environment=TLSN_PROXY_LISTEN=0.0.0.0:7048" >> /tmp/tls-notary-proxy.servi
 echo "Environment=TLSN_PROXY_UPSTREAM=http://127.0.0.1:7047" >> /tmp/tls-notary-proxy.service
 echo "Environment=TLSN_PROXY_JOBS_DIR=/home/livy/tls-notary-config/jobs" >> /tmp/tls-notary-proxy.service
 echo "Environment=TLSN_PROXY_MAX_BODY_BYTES=10485760" >> /tmp/tls-notary-proxy.service
-echo "Environment=TLSN_PROXY_TDX_CMD=/usr/local/bin/tdx-attest" >> /tmp/tls-notary-proxy.service
+echo "Environment=TLSN_PROXY_TDX_CMD=sudo trustauthority-cli evidence --tdx -u '{reportdata_b64}' -c /home/livy/config.json > '{output}'" >> /tmp/tls-notary-proxy.service
 echo "" >> /tmp/tls-notary-proxy.service
 echo "[Install]" >> /tmp/tls-notary-proxy.service
 echo "WantedBy=multi-user.target" >> /tmp/tls-notary-proxy.service
@@ -90,9 +90,41 @@ systemctl start tls-notary-server
 echo "Starting TLS Notary proxy service..."
 systemctl start tls-notary-proxy
 
-# Wait for service to start
+# Wait for service to start and verify it's ready
 echo "Waiting for service to initialize..."
 sleep 10
+
+# Wait for TLS Notary server to be fully ready
+echo "Verifying TLS Notary server is ready..."
+for i in {1..30}; do
+  if curl -s http://localhost:7047/healthcheck > /dev/null 2>&1; then
+    echo "✅ TLS Notary server is ready after ${i} attempts"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    echo "❌ TLS Notary server failed to start after 30 attempts"
+    systemctl status tls-notary-server --no-pager -l
+    exit 1
+  fi
+  echo "Waiting for TLS Notary server... (attempt $i/30)"
+  sleep 2
+done
+
+# Wait for proxy service to be ready
+echo "Verifying TLS Notary proxy is ready..."
+for i in {1..15}; do
+  if curl -s http://localhost:7048/ > /dev/null 2>&1; then
+    echo "✅ TLS Notary proxy is ready after ${i} attempts"
+    break
+  fi
+  if [ $i -eq 15 ]; then
+    echo "⚠️  TLS Notary proxy not responding after 15 attempts"
+    echo "   This may be normal - proxy service can take longer to initialize"
+    systemctl status tls-notary-proxy --no-pager -l
+  fi
+  echo "Waiting for TLS Notary proxy... (attempt $i/15)"
+  sleep 2
+done
 
 # Test TLS Notary server
 echo "Testing TLS Notary server..."
