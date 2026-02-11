@@ -36,6 +36,20 @@ server {
         proxy_read_timeout 300s;
     }
     
+    # Route jobs API to proxy service
+    location ~ ^/api/v1/jobs/[^/]+/(attestation|secrets)\$ {
+        proxy_pass http://127.0.0.1:7048;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # Extended timeouts for file downloads
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+    
     # Proxy everything else to TLS Notary server
     location / {
         proxy_pass http://127.0.0.1:7047;
