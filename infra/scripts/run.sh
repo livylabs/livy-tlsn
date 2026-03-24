@@ -37,6 +37,8 @@ echo "ExecStart=/home/livy/src/tlsn/target/release/notary-server" >> /tmp/tls-no
 echo "Restart=always" >> /tmp/tls-notary-server.service
 echo "RestartSec=5" >> /tmp/tls-notary-server.service
 echo "Environment=PATH=/home/livy/.cargo/bin:/usr/local/bin:/usr/bin:/bin" >> /tmp/tls-notary-server.service
+echo "Environment=PATH_TEE_CONFIG=/home/livy/config.json" >> /tmp/tls-notary-server.service
+echo "Environment=NS_TEE=true" >> /tmp/tls-notary-server.service
 echo "" >> /tmp/tls-notary-server.service
 echo "[Install]" >> /tmp/tls-notary-server.service
 echo "WantedBy=multi-user.target" >> /tmp/tls-notary-server.service

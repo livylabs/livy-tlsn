@@ -55,8 +55,8 @@ else
 fi
 '
 
-# Build TLS Notary server
-echo "🔨 Building TLS Notary server..."
+# Build TLS Notary server and proxy
+echo "🔨 Building TLS Notary server and proxy..."
 sudo -u livy bash -c '
 cd /home/livy/src/tlsn
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/home/livy/.cargo/bin:$PATH"
@@ -68,8 +68,15 @@ source /home/livy/.cargo/env
 if [ -f "target/release/notary-server" ]; then
   echo "✅ TLS Notary server already built, skipping build"
 else
-  cargo build --release --bin notary-server
+  cargo build --release -p notary-server --features tee_quote --bin notary-server
   echo "✅ TLS Notary server built successfully"
+fi
+
+if [ -f "target/release/examples/proxy" ]; then
+  echo "✅ TLS Notary proxy already built, skipping build"
+else
+  cargo build --release -p notary-tee --example proxy
+  echo "✅ TLS Notary proxy built successfully"
 fi
 '
 
@@ -81,6 +88,14 @@ if [ -f "/home/livy/src/tlsn/target/release/notary-server" ]; then
   ls -la /home/livy/src/tlsn/target/release/notary-server
 else
   echo "❌ TLS Notary server binary not found"
+  exit 1
+fi
+
+if [ -f "/home/livy/src/tlsn/target/release/examples/proxy" ]; then
+  echo "✅ TLS Notary proxy binary exists and is executable"
+  ls -la /home/livy/src/tlsn/target/release/examples/proxy
+else
+  echo "❌ TLS Notary proxy binary not found"
   exit 1
 fi
 '

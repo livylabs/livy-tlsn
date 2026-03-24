@@ -15,6 +15,15 @@ users:
     shell: /bin/bash
 
 write_files:
+  - path: /home/livy/config.json
+    permissions: '0640'
+    owner: livy:livy
+    content: |
+      {
+        "trustauthority_api_key": "${trustauthority_api_key}",
+        "trustauthority_api_url": "https://api.trustauthority.intel.com"
+      }
+
   - path: /opt/scripts/core.sh
     permissions: '0755'
     encoding: b64

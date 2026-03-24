@@ -45,22 +45,30 @@ else
 fi
 '
 
-# Create Intel Trust Authority config with environment variable
-echo "⚙️ Creating Intel Trust Authority configuration..."
-sudo -u livy bash -c '
-cd /home/livy
-echo "{" > config.json
-echo "  \"trustauthority_api_key\": \"${trustauthority_api_key}\"," >> config.json
-echo "  \"trustauthority_api_url\": \"https://api.trustauthority.intel.com\"" >> config.json
-echo "}" >> config.json
-echo "✅ Intel Trust Authority config created with environment variable"
-'
+# Create Intel Trust Authority config (written by cloud-init write_files, just verify here)
+echo "⚙️ Verifying Intel Trust Authority configuration..."
+if [ -f /home/livy/config.json ]; then
+  echo "✅ Intel Trust Authority config exists at /home/livy/config.json"
+else
+  echo "❌ Intel Trust Authority config not found at /home/livy/config.json"
+  exit 1
+fi
 
 # Configure passwordless sudo for livy user to run trustauthority-cli
 echo "🔧 Configuring sudo access for trustauthority-cli..."
 echo "livy ALL=(ALL) NOPASSWD: /usr/bin/trustauthority-cli" > /etc/sudoers.d/livy-trustauthority
 chmod 440 /etc/sudoers.d/livy-trustauthority
 echo "✅ Sudo access configured for livy user"
+
+# Create a sudo wrapper at /usr/local/bin so any process can call trustauthority-cli
+# without needing to prefix sudo explicitly (notary-server calls it by name)
+echo "🔧 Creating trustauthority-cli sudo wrapper..."
+cat > /usr/local/bin/trustauthority-cli << 'WRAPPER'
+#!/bin/bash
+exec sudo /usr/bin/trustauthority-cli "$@"
+WRAPPER
+chmod +x /usr/local/bin/trustauthority-cli
+echo "✅ trustauthority-cli sudo wrapper created at /usr/local/bin/trustauthority-cli"
 
 echo "✅ Core Infrastructure Setup Complete!"
 
