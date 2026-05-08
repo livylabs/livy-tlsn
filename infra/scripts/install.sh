@@ -1,104 +1,70 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "🚀 Starting TLS Notary Installation..."
+log() {
+  printf 'install: %s\n' "$*"
+}
 
-# Create TLS Notary configuration directory
-echo "📁 Creating TLS Notary configuration directory..."
-mkdir -p /home/livy/tls-notary-config
-chown -R livy:livy /home/livy/tls-notary-config
+fail() {
+  printf 'install: error: %s\n' "$*" >&2
+  exit 1
+}
 
-# Generate TLS Notary signing key
-echo "🔑 Generating TLS Notary signing key..."
-sudo -u livy bash -c '
-cd /home/livy/tls-notary-config
-openssl genpkey -algorithm RSA -out notary-signing-key.pem -pass pass:
-echo "✅ TLS Notary signing key generated"
+TLSN_REPO_URL="https://github.com/livylabs/tlsn.git"
+TLSN_BRANCH="tee_dev"
+TLSN_DIR="/home/livy/src/tlsn"
+CONFIG_DIR="/home/livy/tls-notary-config"
+
+id livy >/dev/null 2>&1 || fail "user livy does not exist"
+
+log "preparing directories"
+install -d -o livy -g livy "$CONFIG_DIR" /home/livy/src
+
+log "preparing notary configuration"
+sudo -u livy env HOME=/home/livy CONFIG_DIR="$CONFIG_DIR" bash -c '
+  set -euo pipefail
+  cd "$CONFIG_DIR"
+  if [ ! -s notary-signing-key.pem ]; then
+    openssl genpkey -algorithm RSA -out notary-signing-key.pem -pass pass:
+  fi
+  cat > config.toml <<'"'"'EOF'"'"'
+[notary]
+host = "0.0.0.0"
+port = 7047
+
+[notary.signing_key]
+path = "./notary-signing-key.pem"
+EOF
 '
 
-# Create TLS Notary configuration file
-echo "⚙️ Creating TLS Notary configuration file..."
-sudo -u livy bash -c '
-cd /home/livy/tls-notary-config
-echo "[notary]" > config.toml
-echo "host = \"0.0.0.0\"" >> config.toml
-echo "port = 7047" >> config.toml
-echo "" >> config.toml
-echo "[notary.signing_key]" >> config.toml
-echo "path = \"./notary-signing-key.pem\"" >> config.toml
-echo "" >> config.toml
-echo "[notary.attestation]" >> config.toml
-echo "# Intel Trust Authority configuration will be added here" >> config.toml
-echo "✅ TLS Notary configuration created"
+log "syncing TLSN source"
+sudo -u livy env HOME=/home/livy TLSN_REPO_URL="$TLSN_REPO_URL" TLSN_BRANCH="$TLSN_BRANCH" TLSN_DIR="$TLSN_DIR" bash -c '
+  set -euo pipefail
+  if [ ! -d "$TLSN_DIR/.git" ]; then
+    git clone --branch "$TLSN_BRANCH" --single-branch "$TLSN_REPO_URL" "$TLSN_DIR"
+  else
+    cd "$TLSN_DIR"
+    git remote set-url origin "$TLSN_REPO_URL"
+    git fetch origin "$TLSN_BRANCH"
+    git checkout "$TLSN_BRANCH"
+    git pull --ff-only origin "$TLSN_BRANCH"
+  fi
 '
 
-# Download TLS Notary server from source
-echo "📥 Downloading TLS Notary source code..."
-sudo -u livy bash -c '
-cd /home/livy
-mkdir -p src
-cd src
-if [ ! -d "tlsn" ]; then
-  git clone https://github.com/livylabs/tlsn.git
-  cd tlsn
-  # Use tee_dev branch from livylabs fork
-  git checkout tee_dev
-  echo "✅ Livy Labs TLS Notary source code downloaded"
-else
-  echo "✅ TLS Notary source code already exists, updating to livylabs fork..."
-  cd tlsn
-  git remote set-url origin https://github.com/livylabs/tlsn.git
-  git fetch origin
-  git checkout tee_dev
-  git pull origin tee_dev
-  echo "✅ Updated to livylabs/tlsn fork"
-fi
-'
-
-# Build TLS Notary server and proxy
-echo "🔨 Building TLS Notary server and proxy..."
-sudo -u livy bash -c '
-cd /home/livy/src/tlsn
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/home/livy/.cargo/bin:$PATH"
-export CARGO_HOME="/home/livy/.cargo"
-export RUSTUP_HOME="/home/livy/.rustup"
-source /home/livy/.cargo/env
-
-# Check if already built
-if [ -f "target/release/notary-server" ]; then
-  echo "✅ TLS Notary server already built, skipping build"
-else
+log "building TLSN binaries"
+sudo -u livy env HOME=/home/livy TLSN_DIR="$TLSN_DIR" bash -c '
+  set -euo pipefail
+  export CARGO_HOME=/home/livy/.cargo
+  export RUSTUP_HOME=/home/livy/.rustup
+  export PATH=/home/livy/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  source /home/livy/.cargo/env
+  cd "$TLSN_DIR"
   cargo build --release -p notary-server --features tee_quote --bin notary-server
-  echo "✅ TLS Notary server built successfully"
-fi
-
-if [ -f "target/release/examples/proxy" ]; then
-  echo "✅ TLS Notary proxy already built, skipping build"
-else
   cargo build --release -p notary-tee --example proxy
-  echo "✅ TLS Notary proxy built successfully"
-fi
 '
 
-# Verify the build
-echo "🧪 Verifying TLS Notary build..."
-sudo -u livy bash -c '
-if [ -f "/home/livy/src/tlsn/target/release/notary-server" ]; then
-  echo "✅ TLS Notary server binary exists and is executable"
-  ls -la /home/livy/src/tlsn/target/release/notary-server
-else
-  echo "❌ TLS Notary server binary not found"
-  exit 1
-fi
+log "verifying binaries"
+[ -x "$TLSN_DIR/target/release/notary-server" ] || fail "missing $TLSN_DIR/target/release/notary-server"
+[ -x "$TLSN_DIR/target/release/examples/proxy" ] || fail "missing $TLSN_DIR/target/release/examples/proxy"
 
-if [ -f "/home/livy/src/tlsn/target/release/examples/proxy" ]; then
-  echo "✅ TLS Notary proxy binary exists and is executable"
-  ls -la /home/livy/src/tlsn/target/release/examples/proxy
-else
-  echo "❌ TLS Notary proxy binary not found"
-  exit 1
-fi
-'
-
-echo "✅ TLS Notary Installation Complete!"
-
+log "complete"

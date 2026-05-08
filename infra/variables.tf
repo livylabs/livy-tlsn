@@ -93,3 +93,9 @@ variable "domain_name" {
   type        = string
   default     = ""
 }
+
+variable "certificate_email" {
+  description = "Email address used for Let's Encrypt certificate registration"
+  type        = string
+  default     = "contact@livylabs.xyz"
+}

@@ -1,157 +1,106 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "Starting TLS Notary Service Setup and Execution..."
+log() {
+  printf 'run: %s\n' "$*"
+}
 
-# Verify prerequisites
-echo "Verifying prerequisites..."
-if [ ! -f "/home/livy/src/tlsn/target/release/notary-server" ]; then
-  echo "TLS Notary server binary not found. Run install.sh first."
+fail() {
+  printf 'run: error: %s\n' "$*" >&2
   exit 1
-fi
+}
 
-if [ ! -f "/home/livy/src/tlsn/target/release/examples/proxy" ]; then
-  echo "TLS Notary proxy binary not found. Build it first:"
-  echo "  cargo build --release -p notary-tee --example proxy"
-  exit 1
-fi
+SERVER_BIN="/home/livy/src/tlsn/target/release/notary-server"
+PROXY_BIN="/home/livy/src/tlsn/target/release/examples/proxy"
+CONFIG_DIR="/home/livy/tls-notary-config"
+JOBS_DIR="$CONFIG_DIR/jobs"
 
-if [ ! -f "/home/livy/tls-notary-config/config.toml" ]; then
-  echo "TLS Notary configuration not found. Run install.sh first."
-  exit 1
-fi
+[ -x "$SERVER_BIN" ] || fail "missing $SERVER_BIN"
+[ -x "$PROXY_BIN" ] || fail "missing $PROXY_BIN"
+[ -f "$CONFIG_DIR/config.toml" ] || fail "missing $CONFIG_DIR/config.toml"
 
-# Create systemd service for TLS Notary server
-echo "Creating systemd service (notary-server)..."
-sudo -u livy bash -c '
-echo "[Unit]" > /tmp/tls-notary-server.service
-echo "Description=TLS Notary Server" >> /tmp/tls-notary-server.service
-echo "After=network.target" >> /tmp/tls-notary-server.service
-echo "" >> /tmp/tls-notary-server.service
-echo "[Service]" >> /tmp/tls-notary-server.service
-echo "Type=simple" >> /tmp/tls-notary-server.service
-echo "User=livy" >> /tmp/tls-notary-server.service
-echo "Group=livy" >> /tmp/tls-notary-server.service
-echo "WorkingDirectory=/home/livy/tls-notary-config" >> /tmp/tls-notary-server.service
-echo "ExecStart=/home/livy/src/tlsn/target/release/notary-server" >> /tmp/tls-notary-server.service
-echo "Restart=always" >> /tmp/tls-notary-server.service
-echo "RestartSec=5" >> /tmp/tls-notary-server.service
-echo "Environment=PATH=/home/livy/.cargo/bin:/usr/local/bin:/usr/bin:/bin" >> /tmp/tls-notary-server.service
-echo "Environment=PATH_TEE_CONFIG=/home/livy/config.json" >> /tmp/tls-notary-server.service
-echo "Environment=NS_TEE=true" >> /tmp/tls-notary-server.service
-echo "" >> /tmp/tls-notary-server.service
-echo "[Install]" >> /tmp/tls-notary-server.service
-echo "WantedBy=multi-user.target" >> /tmp/tls-notary-server.service
-sudo mv /tmp/tls-notary-server.service /etc/systemd/system/
-echo "TLS Notary systemd service created"
-'
+log "writing systemd units"
+install -d -o livy -g livy "$JOBS_DIR"
 
-# Create systemd service for TLS Notary proxy
-echo "Creating systemd service (proxy)..."
-sudo -u livy bash -c '
-echo "[Unit]" > /tmp/tls-notary-proxy.service
-echo "Description=TLS Notary TEE Proxy" >> /tmp/tls-notary-proxy.service
-echo "After=network.target tls-notary-server.service" >> /tmp/tls-notary-proxy.service
-echo "Requires=tls-notary-server.service" >> /tmp/tls-notary-proxy.service
-echo "" >> /tmp/tls-notary-proxy.service
-echo "[Service]" >> /tmp/tls-notary-proxy.service
-echo "Type=simple" >> /tmp/tls-notary-proxy.service
-echo "User=livy" >> /tmp/tls-notary-proxy.service
-echo "Group=livy" >> /tmp/tls-notary-proxy.service
-echo "WorkingDirectory=/home/livy/tls-notary-config" >> /tmp/tls-notary-proxy.service
-echo "ExecStart=/home/livy/src/tlsn/target/release/examples/proxy" >> /tmp/tls-notary-proxy.service
-echo "Restart=always" >> /tmp/tls-notary-proxy.service
-echo "RestartSec=5" >> /tmp/tls-notary-proxy.service
-echo "Environment=PATH=/home/livy/.cargo/bin:/usr/local/bin:/usr/bin:/bin" >> /tmp/tls-notary-proxy.service
-echo "Environment=TLSN_PROXY_LISTEN=0.0.0.0:7048" >> /tmp/tls-notary-proxy.service
-echo "Environment=TLSN_PROXY_UPSTREAM=http://127.0.0.1:7047" >> /tmp/tls-notary-proxy.service
-echo "Environment=TLSN_PROXY_JOBS_DIR=/home/livy/tls-notary-config/jobs" >> /tmp/tls-notary-proxy.service
-echo "Environment=TLSN_PROXY_MAX_BODY_BYTES=10485760" >> /tmp/tls-notary-proxy.service
-echo "Environment=TLSN_PROXY_TDX_CMD=sudo trustauthority-cli evidence --tdx -u '{reportdata_b64}' -c /home/livy/config.json > '{output}'" >> /tmp/tls-notary-proxy.service
-echo "" >> /tmp/tls-notary-proxy.service
-echo "[Install]" >> /tmp/tls-notary-proxy.service
-echo "WantedBy=multi-user.target" >> /tmp/tls-notary-proxy.service
-sudo mv /tmp/tls-notary-proxy.service /etc/systemd/system/
-echo "TLS Notary proxy systemd service created"
-'
+cat > /etc/systemd/system/tls-notary-server.service <<EOF
+[Unit]
+Description=TLS Notary Server
+After=network-online.target
+Wants=network-online.target
 
-# Reload systemd and enable services
-echo "Reloading systemd and enabling services..."
+[Service]
+Type=simple
+User=livy
+Group=livy
+WorkingDirectory=$CONFIG_DIR
+ExecStart=$SERVER_BIN
+Restart=always
+RestartSec=5
+Environment=PATH=/home/livy/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH_TEE_CONFIG=/home/livy/config.json
+Environment=NS_TEE=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/tls-notary-proxy.service <<EOF
+[Unit]
+Description=TLS Notary TEE Proxy
+After=network-online.target tls-notary-server.service
+Wants=network-online.target
+Requires=tls-notary-server.service
+
+[Service]
+Type=simple
+User=livy
+Group=livy
+WorkingDirectory=$CONFIG_DIR
+ExecStart=$PROXY_BIN
+Restart=always
+RestartSec=5
+Environment=PATH=/home/livy/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TLSN_PROXY_LISTEN=0.0.0.0:7048
+Environment=TLSN_PROXY_UPSTREAM=http://127.0.0.1:7047
+Environment=TLSN_PROXY_JOBS_DIR=$JOBS_DIR
+Environment=TLSN_PROXY_MAX_BODY_BYTES=10485760
+Environment="TLSN_PROXY_TDX_CMD=sudo /usr/bin/trustauthority-cli evidence --tdx -u {reportdata_b64} -c /home/livy/config.json > {output}"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+log "starting services"
 systemctl daemon-reload
-systemctl enable tls-notary-server
-systemctl enable tls-notary-proxy
+systemctl enable tls-notary-server tls-notary-proxy >/dev/null
+systemctl restart tls-notary-server
+systemctl restart tls-notary-proxy
 
-# Stop services if running (for idempotency)
-echo "Stopping existing services (if running)..."
-systemctl stop tls-notary-proxy || true
-systemctl stop tls-notary-server || true
-
-# Start services
-echo "Starting TLS Notary server service..."
-systemctl start tls-notary-server
-echo "Starting TLS Notary proxy service..."
-systemctl start tls-notary-proxy
-
-# Wait for service to start and verify it's ready
-echo "Waiting for service to initialize..."
-sleep 10
-
-# Wait for TLS Notary server to be fully ready
-echo "Verifying TLS Notary server is ready..."
-for i in {1..30}; do
-  if curl -s http://localhost:7047/healthcheck > /dev/null 2>&1; then
-    echo "✅ TLS Notary server is ready after ${i} attempts"
+log "waiting for notary server"
+for attempt in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:7047/healthcheck >/dev/null 2>&1; then
     break
   fi
-  if [ $i -eq 30 ]; then
-    echo "❌ TLS Notary server failed to start after 30 attempts"
-    systemctl status tls-notary-server --no-pager -l
-    exit 1
+  if [ "$attempt" -eq 30 ]; then
+    systemctl status tls-notary-server --no-pager -l >&2 || true
+    fail "notary server did not become healthy"
   fi
-  echo "Waiting for TLS Notary server... (attempt $i/30)"
   sleep 2
 done
 
-# Wait for proxy service to be ready
-echo "Verifying TLS Notary proxy is ready..."
-for i in {1..15}; do
-  if curl -s http://localhost:7048/ > /dev/null 2>&1; then
-    echo "✅ TLS Notary proxy is ready after ${i} attempts"
+log "waiting for proxy"
+for attempt in $(seq 1 15); do
+  if curl -sS http://127.0.0.1:7048/ >/dev/null 2>&1; then
     break
   fi
-  if [ $i -eq 15 ]; then
-    echo "⚠️  TLS Notary proxy not responding after 15 attempts"
-    echo "   This may be normal - proxy service can take longer to initialize"
-    systemctl status tls-notary-proxy --no-pager -l
+  if [ "$attempt" -eq 15 ]; then
+    systemctl status tls-notary-proxy --no-pager -l >&2 || true
+    fail "proxy did not become reachable"
   fi
-  echo "Waiting for TLS Notary proxy... (attempt $i/15)"
   sleep 2
 done
 
-# Test TLS Notary server
-echo "Testing TLS Notary server..."
-sudo -u livy bash -c '
-echo "Testing TLS Notary server health..."
-if curl -s http://localhost:7047/healthcheck > /dev/null; then
-  echo "TLS Notary server is responding to health checks"
-else
-  echo "TLS Notary server health check failed"
-  echo "Service status:"
-  systemctl status tls-notary-server --no-pager -l
-  exit 1
-fi
+systemctl is-active --quiet tls-notary-server || fail "tls-notary-server is not active"
+systemctl is-active --quiet tls-notary-proxy || fail "tls-notary-proxy is not active"
 
-# Show service status
-echo "Service status:"
-systemctl status tls-notary-server --no-pager -l
-'
-
-# Show service logs for debugging
-echo "Recent service logs (server):"
-journalctl -u tls-notary-server --no-pager -l -n 20
-echo "Recent service logs (proxy):"
-journalctl -u tls-notary-proxy --no-pager -l -n 20
-
-echo "TLS Notary Service Setup and Execution Complete!"
-echo "TLS Notary server is running on http://localhost:7047"
-echo "TLS Notary proxy is running on http://localhost:7048"
+log "complete"

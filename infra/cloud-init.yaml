@@ -18,6 +18,7 @@ write_files:
   - path: /home/livy/config.json
     permissions: '0640'
     owner: livy:livy
+    defer: true
     content: |
       {
         "trustauthority_api_key": "${trustauthority_api_key}",
@@ -45,11 +46,12 @@ write_files:
     content: ${https_script_b64}
 
 runcmd:
-  # Execute the four-phase setup
-  - /opt/scripts/core.sh
-  - /opt/scripts/install.sh
-  - /opt/scripts/run.sh
-  - /opt/scripts/setup-https.sh ${domain_name} admin@livylabs.xyz
+  - |
+    set -eu
+    /opt/scripts/core.sh
+    /opt/scripts/install.sh
+    /opt/scripts/run.sh
+    /opt/scripts/setup-https.sh "${domain_name}" "${certificate_email}"
 
 final_message: |
-  Infrastructure Ready!
+  Livy TLSN bootstrap finished.

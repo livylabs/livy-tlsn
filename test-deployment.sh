@@ -1,158 +1,144 @@
 #!/bin/bash
+set -euo pipefail
 
-# This script tests the complete deployment to ensure everything is working correctly
+PROJECT_ID="${PROJECT_ID:-livy-infra}"
+ZONE="${ZONE:-us-central1-a}"
+INSTANCE="${INSTANCE:-test-notary-instance}"
+DOMAIN_NAME="${DOMAIN_NAME:-tlsn.livylabs.xyz}"
 
-set -e
+SSH_BASE=(
+  gcloud compute ssh "$INSTANCE"
+  --project="$PROJECT_ID"
+  --zone="$ZONE"
+  --quiet
+)
 
-echo "🚀 TLSn TDX Infrastructure Test Suite"
-echo "===================================="
-echo ""
+REMOTE_PATH='export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/home/livy/.cargo/bin:$PATH'
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+pass_count=0
+warn_count=0
 
-# Test functions
-test_pass() {
-    echo -e "${GREEN}✅ PASS${NC}: $1"
+log() {
+  printf '%s\n' "$*"
 }
 
-test_fail() {
-    echo -e "${RED}❌ FAIL${NC}: $1"
-    exit 1
+pass() {
+  pass_count=$((pass_count + 1))
+  printf 'PASS: %s\n' "$*"
 }
 
-test_warn() {
-    echo -e "${YELLOW}⚠️  WARN${NC}: $1"
+warn() {
+  warn_count=$((warn_count + 1))
+  printf 'WARN: %s\n' "$*" >&2
 }
 
-# Test 1: Infrastructure Health
-echo "🔍 Test 1: Infrastructure Health"
-if gcloud compute instances describe test-notary-instance --zone=us-central1-a --format="value(status)" | grep -q "RUNNING"; then
-    test_pass "Instance is RUNNING"
-else
-    test_fail "Instance is not running"
-fi
-echo ""
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
 
-# Test 2: TLSn Service
-echo "🔍 Test 2: TLSn Service Status"
-if gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo systemctl is-active tls-notary-server" | grep -q "active"; then
-    test_pass "TLSn service is active"
-else
-    test_fail "TLSn service is not active"
-fi
-echo ""
+remote() {
+  "${SSH_BASE[@]}" --command="$REMOTE_PATH; $*"
+}
 
-# Test 3: Health Endpoint
-echo "🔍 Test 3: Health Endpoint"
-HEALTH_RESPONSE=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && curl -s http://localhost:7047/healthcheck" 2>/dev/null)
-if [[ "$HEALTH_RESPONSE" == *"Ok"* ]]; then
-    test_pass "Health endpoint responding: $HEALTH_RESPONSE"
-else
-    test_fail "Health endpoint not responding correctly: $HEALTH_RESPONSE"
-fi
-echo ""
+section() {
+  printf '\n%s\n' "$*"
+}
 
-# Test 4: TDX Status
-echo "🔍 Test 4: TDX Status"
-TDX_STATUS=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo dmesg | grep -i 'Memory Encryption Features active'" 2>/dev/null)
-if [[ "$TDX_STATUS" == *"Intel TDX"* ]]; then
-    test_pass "TDX memory encryption active: $TDX_STATUS"
-else
-    test_fail "TDX memory encryption not active"
-fi
-echo ""
+log "TLSN TDX deployment test"
+log "project=$PROJECT_ID zone=$ZONE instance=$INSTANCE"
 
-# Test 5: Native Binary
-echo "🔍 Test 5: Native Binary"
-BINARY_INFO=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo ls -la /home/livy/src/tlsn/target/release/notary-server" 2>/dev/null)
-if [[ "$BINARY_INFO" == *"notary-server"* ]]; then
-    test_pass "Native binary exists: $BINARY_INFO"
-else
-    test_fail "Native binary not found"
-fi
-echo ""
+section "Infrastructure"
+instance_status="$(gcloud compute instances describe "$INSTANCE" --project="$PROJECT_ID" --zone="$ZONE" --format='value(status)')"
+[ "$instance_status" = "RUNNING" ] || fail "instance status is $instance_status"
+pass "instance is RUNNING"
 
-# Test 6: Process Memory Usage
-echo "🔍 Test 6: Process Memory Usage"
-PROCESS_INFO=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && ps aux | grep notary-server | grep -v grep" 2>/dev/null)
-if [[ "$PROCESS_INFO" == *"notary-server"* ]]; then
-    test_pass "Process running natively: $PROCESS_INFO"
-else
-    test_fail "Process not running"
-fi
-echo ""
+external_ip="$(gcloud compute instances describe "$INSTANCE" --project="$PROJECT_ID" --zone="$ZONE" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')"
+[ -n "$external_ip" ] || fail "instance has no external IP"
+pass "external IP is $external_ip"
 
-# Test 7: Service Logs (optional)
-echo "🔍 Test 7: Service Logs Check"
-RECENT_LOGS=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo journalctl -u tls-notary-server --since '5 minutes ago' --no-pager" 2>/dev/null | tail -3)
-if [[ "$RECENT_LOGS" == *"Listening for TCP traffic"* ]] || [[ "$RECENT_LOGS" == *"notary-server"* ]]; then
-    test_pass "Service logs show recent activity"
-else
-    test_warn "No recent service logs found (may be normal if service started earlier)"
-fi
-echo ""
+section "Cloud-init"
+cloud_init_status="$(remote "sudo cloud-init status --long")"
+printf '%s\n' "$cloud_init_status"
+grep -q 'status: done' <<<"$cloud_init_status" || fail "cloud-init is not done"
+grep -q 'errors: \[\]' <<<"$cloud_init_status" || fail "cloud-init reported errors"
+pass "cloud-init completed without errors"
 
-# Test 8: Intel Trust Authority CLI
-echo "🔍 Test 8: Intel Trust Authority CLI"
+section "Services"
+service_state="$(remote "systemctl is-active tls-notary-server tls-notary-proxy nginx")"
+expected_services=$'active\nactive\nactive'
+[ "$service_state" = "$expected_services" ] || fail "unexpected service state: $service_state"
+pass "tls-notary-server, tls-notary-proxy, and nginx are active"
 
-# Test 8.1: CLI Installation
-echo "📋 Testing Intel Trust Authority CLI installation..."
-CLI_VERSION=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && trustauthority-cli version 2>/dev/null | head -1" 2>/dev/null)
-if [[ "$CLI_VERSION" == *"Intel® Trust Authority CLI"* ]]; then
-    test_pass "Intel Trust Authority CLI installed: $CLI_VERSION"
+health_response="$(remote "curl -fsS http://127.0.0.1:7047/healthcheck")"
+[ "$health_response" = "Ok" ] || fail "local notary healthcheck returned '$health_response'"
+pass "local notary healthcheck returned Ok"
+
+nginx_response="$(remote "curl -fsSk --resolve '$DOMAIN_NAME:443:127.0.0.1' 'https://$DOMAIN_NAME/healthcheck' 2>/dev/null || curl -fsS -H 'Host: $DOMAIN_NAME' http://127.0.0.1/healthcheck")"
+[ "$nginx_response" = "Ok" ] || fail "local nginx healthcheck returned '$nginx_response'"
+pass "local nginx healthcheck returned Ok"
+
+section "TDX"
+tdx_status="$(remote "sudo dmesg | grep -i 'Memory Encryption Features active' | tail -1")"
+grep -q 'Intel TDX' <<<"$tdx_status" || fail "TDX memory encryption is not active"
+pass "$tdx_status"
+
+section "Binaries"
+remote "test -x /home/livy/src/tlsn/target/release/notary-server"
+pass "notary-server binary exists"
+
+remote "test -x /home/livy/src/tlsn/target/release/examples/proxy"
+pass "proxy binary exists"
+
+process_line="$(remote "pgrep -a notary-server")"
+grep -q '/home/livy/src/tlsn/target/release/notary-server' <<<"$process_line" || fail "notary-server process is not running from release binary"
+pass "notary-server is running from release binary"
+
+section "Intel Trust Authority"
+cli_version="$(remote "trustauthority-cli version 2>/dev/null | head -1")"
+grep -q 'Intel.*Trust Authority CLI' <<<"$cli_version" || fail "trustauthority-cli version check failed"
+pass "$cli_version"
+
+remote "test -f /home/livy/config.json"
+pass "Intel Trust Authority config exists"
+
+token="$(remote "sudo trustauthority-cli token --tdx -c /home/livy/config.json 2>/dev/null | tail -1")"
+if [[ "$token" == eyJ* ]]; then
+  pass "TDX token generated"
 else
-    test_fail "Intel Trust Authority CLI not found or not working"
+  warn "TDX token generation returned an unexpected response"
 fi
 
-# Test 8.2: Config File
-echo "📋 Testing Intel Trust Authority CLI configuration..."
-CONFIG_TEST=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo test -f /home/livy/config.json && echo 'Config file exists'" 2>/dev/null)
-if [[ "$CONFIG_TEST" == *"Config file exists"* ]]; then
-    test_pass "Intel Trust Authority config file exists"
-else
-    test_fail "Intel Trust Authority config file missing"
+evidence="$(remote "sudo trustauthority-cli evidence --tdx -u 'SGVsbG8gd29ybGQ=' -c /home/livy/config.json 2>/dev/null")"
+grep -q '"tdx"' <<<"$evidence" || fail "TDX evidence output did not contain tdx object"
+pass "TDX evidence generated"
+
+userdata_evidence="$(remote "sudo trustauthority-cli evidence --tdx -u 'SGVsbG8gV29ybGQh' -c /home/livy/config.json 2>/dev/null")"
+grep -q '"runtime_data"' <<<"$userdata_evidence" || fail "TDX evidence did not contain runtime_data"
+grep -q 'SGVsbG8gV29ybGQh' <<<"$userdata_evidence" || fail "TDX evidence did not include supplied runtime_data"
+pass "TDX evidence includes supplied runtime data"
+
+section "Public endpoint"
+if [ -n "$DOMAIN_NAME" ]; then
+  resolved_ip="$(dig +short "$DOMAIN_NAME" | tail -1 || true)"
+  if [ "$resolved_ip" = "$external_ip" ]; then
+    pass "$DOMAIN_NAME resolves to $external_ip"
+    public_https="$(curl -fsS --max-time 10 --resolve "$DOMAIN_NAME:443:$external_ip" "https://$DOMAIN_NAME/healthcheck" || true)"
+    if [ "$public_https" = "Ok" ]; then
+      pass "public HTTPS healthcheck returned Ok"
+    else
+      warn "public HTTPS healthcheck did not return Ok"
+    fi
+  else
+    warn "$DOMAIN_NAME resolves to '${resolved_ip:-unresolved}', expected '$external_ip'"
+  fi
 fi
 
-# Test 8.3: TDX Attestation
-echo "📋 Testing Intel Trust Authority TDX attestation..."
-ATTESTATION_RESULT=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo trustauthority-cli token --tdx -c /home/livy/config.json 2>/dev/null | tail -1" 2>/dev/null)
+section "Summary"
+log "passes=$pass_count warnings=$warn_count"
 
-if [[ "$ATTESTATION_RESULT" == *"eyJ"* ]]; then
-    # JWT tokens start with eyJ (base64 encoded header)
-    test_pass "Intel Trust Authority TDX attestation successful - JWT token generated"
-    echo "🔐 Token preview: ${ATTESTATION_RESULT:0:50}..."
+if [ "$warn_count" -gt 0 ]; then
+  log "deployment tests passed with warnings"
 else
-    test_warn "Intel Trust Authority TDX attestation may have issues"
-    echo "📄 Response: $ATTESTATION_RESULT"
-fi
-
-# Test 8.4: Evidence Generation
-echo "📋 Testing Intel Trust Authority evidence generation..."
-EVIDENCE_OUTPUT=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo trustauthority-cli evidence --tdx -u 'SGVsbG8gd29ybGQ=' -c /home/livy/config.json" 2>/dev/null)
-
-if [[ "$EVIDENCE_OUTPUT" == *"tdx"* ]]; then
-    test_pass "Intel Trust Authority evidence generation working"
-    echo "📄 Evidence Output:"
-    echo "$EVIDENCE_OUTPUT"
-else
-    test_warn "Intel Trust Authority evidence generation may have issues"
-    echo "📄 Response: $EVIDENCE_OUTPUT"
-fi
-
-# Test 8.5: Evidence with User Data
-echo "📋 Testing Intel Trust Authority evidence with user data 'Hello World!'..."
-EVIDENCE_USERDATA=$(gcloud compute ssh test-notary-instance --zone=us-central1-a --command="export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:\$PATH && sudo trustauthority-cli evidence --tdx -u 'SGVsbG8gV29ybGQh' -c /home/livy/config.json" 2>/dev/null)
-
-if [[ "$EVIDENCE_USERDATA" == *"runtime_data"* ]] && [[ "$EVIDENCE_USERDATA" == *"SGVsbG8gV29ybGQh"* ]]; then
-    test_pass "Intel Trust Authority evidence with user data 'Hello World!' working"
-    echo "🔐 User data in evidence: Hello World!"
-    echo "📄 Evidence snippet:"
-    echo "$EVIDENCE_USERDATA" | grep -A 5 -B 5 '"runtime_data"'
-else
-    test_warn "Intel Trust Authority evidence with user data may have issues"
-    echo "📄 Response: $EVIDENCE_USERDATA"
+  log "deployment tests passed"
 fi

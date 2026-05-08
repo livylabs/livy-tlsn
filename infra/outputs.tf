@@ -35,23 +35,22 @@ output "service_account_email" {
 
 output "livy_ssh_command" {
   description = "SSH command to connect to Livy TDX instance"
-  value       = "gcloud compute ssh test-notary-instance --zone=us-central1-a"
+  value       = "gcloud compute ssh ${google_compute_instance.notary_instance.name} --zone=${var.zone}"
 }
-
 
 output "trustauthority_evidence_test" {
   description = "Command to test Intel Trust Authority evidence collection"
-  value       = "gcloud compute ssh test-notary-instance --zone=us-central1-a --command='sudo trustauthority-cli evidence --tdx --tpm -c /home/livy/config.json'"
+  value       = "gcloud compute ssh ${google_compute_instance.notary_instance.name} --zone=${var.zone} --command='sudo trustauthority-cli evidence --tdx --tpm -c /home/livy/config.json'"
 }
 
 output "trustauthority_token_test" {
   description = "Command to test Intel Trust Authority token generation"
-  value       = "gcloud compute ssh test-notary-instance --zone=us-central1-a --command='sudo trustauthority-cli token --tdx --tpm -c /home/livy/config.json'"
+  value       = "gcloud compute ssh ${google_compute_instance.notary_instance.name} --zone=${var.zone} --command='sudo trustauthority-cli token --tdx --tpm -c /home/livy/config.json'"
 }
 
 output "tls_notary_endpoint" {
   description = "TLS Notary server endpoint URL"
-  value       = try("http://${google_compute_instance.notary_instance.network_interface[0].access_config[0].nat_ip}:7047", "No external IP configured")
+  value       = try("http://${google_compute_instance.notary_instance.network_interface[0].access_config[0].nat_ip}:${var.tls_notary_port}", "No external IP configured")
 }
 
 output "tls_notary_https_endpoint" {

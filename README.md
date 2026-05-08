@@ -1,369 +1,177 @@
-# Livy TLSn TDX Infrastructure
+# Livy TLSN TDX Infrastructure
 
-This repository contains Terraform infrastructure for deploying a TLS Notary server on Google Cloud Platform with Intel TDX (Trust Domain Extensions) confidential computing capabilities and Intel Trust Authority attestation.
+Terraform infrastructure for deploying a TLS Notary server on Google Cloud with Intel TDX confidential computing and Intel Trust Authority attestation.
 
-## Overview
-
-This infrastructure deploys:
-- **TDX-enabled GCP instance** running Ubuntu 24.04 LTS
-- **TLS Notary server** built from source
-- **Intel Trust Authority integration** for hardware attestation
-- **Auto-configuration** via cloud-init on boot
-- **Systemd service** for TLSn server management
-
-## Architecture
-
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-┌─────────────────────────────────────────────────────────────┐
-│                    Google Cloud Platform                    │
-│                                                             │
-│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │   VPC Network   │    │        TDX Instance             │ │
-│  │                 │    │                                 │ │
-│  │ ┌─────────────┐ │    │ ┌─────────────────────────────┐ │ │
-│  │ │   Subnet    │ │◄───┤ │     Ubuntu 24.04 LTS        │ │ │
-│  │ │ 10.0.1.0/24 │ │    │ │                             │ │ │
-│  │ └─────────────┘ │    │ │ ┌─────────────────────────┐ │ │ │
-│  │                 │    │ │ │   TLS Notary Server     │ │ │ │
-│  │ ┌─────────────┐ │    │ │ │   (Native Binary)       │ │ │ │
-│  │ │ Cloud NAT   │ │    │ │ │   Port: 7047            │ │ │ │
-│  │ └─────────────┘ │    │ │ └─────────────────────────┘ │ │ │
-│  └─────────────────┘    │ │                             │ │ │
-│                         │ │ ┌─────────────────────────┐ │ │ │
-│                         │ │ │ Intel Trust Authority   │ │ │ │
-│                         │ │ │ CLI + Attestation       │ │ │ │
-│                         │ │ └─────────────────────────┘ │ │ │
-│                         │ └─────────────────────────────┘ │ │
-│                         └─────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-## Prerequisites
-
-1. **Google Cloud Platform Account** with billing enabled
-2. **Intel Trust Authority API Key** - Get from [Intel Trust Authority Portal](https://portal.trustauthority.intel.com)
-3. **Terraform** >= 1.0 installed locally
-4. **gcloud CLI** installed and authenticated
-
-## Quick Start
-
-### 1. Clone Repository
-```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-git clone https://github.com/livylabs/livy-tlsn.git
-cd livy-tlsn/infra
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-### 2. Configure Variables
-Copy `environments/example.test.tfvars` to `environments/test.tfvars` and Intel Trust Authority API key:
-environment      = "test"
-project_id       = "your-gcp-project-id"
-project_name     = "tls-notary-server"
-region           = "us-central1"
-zone             = "us-central1-a"
-machine_type     = "c3-standard-4"  # TDX-enabled instance
-boot_disk_size   = 30
-subnet_cidr      = "10.0.1.0/24"
-allowed_ssh_sources = [
-  "0.0.0.0/0"  # Restrict this in production
-]
-tls_notary_version = "latest"
-tls_notary_port    = 7047
-allowed_notary_sources = [
-  "0.0.0.0/0"  # Restrict this in production
-]
-
-# Intel Trust Authority API key
-trustauthority_api_key = "your_api_key_here"
-domain_name = "your-domain.com"  # Change this to your domain
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-### 3. Authenticate with Google Cloud
-
-Before deploying, authenticate with Google Cloud Platform:
+The deploy is intended to be single-command after configuration:
 
 ```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Authenticate your user account
-gcloud auth login
-
-# Set up application default credentials for Terraform
-gcloud auth application-default login
-
-# Set your project (replace with your actual project ID)
-gcloud config set project your-gcp-project-id
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-### 4. Deploy Infrastructure
-
-```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Navigate to infrastructure directory
 cd infra
-
-# Initialize Terraform
-terraform init
-
-# Review the deployment plan
-terraform plan -var-file="environments/test.tfvars"
-
-# Deploy infrastructure (auto-approve for non-interactive deployment)
 terraform apply -var-file="environments/test.tfvars" -auto-approve
 ```
 
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
+Terraform creates the infrastructure, writes the cloud-init payload to the VM, and cloud-init runs the bootstrap scripts automatically. Normal deployments should not require SSHing into the instance or running setup scripts by hand.
 
-**Deployment Timeline**: The full deployment takes approximately 8-10 minutes:
-- Infrastructure creation: ~2 minutes
-- Instance boot: ~1 minute
-- Cloud-init setup: ~2 minutes
-- Rust compilation: ~4-5 minutes
-- Service startup: ~1 minute
+For the exact step-by-step deployment instructions, see [instructions.md](instructions.md).
 
-### 5. Verify Deployment
+## What It Deploys
 
-#### Automated Testing
+- A TDX-enabled Ubuntu 24.04 Compute Engine VM.
+- A custom VPC, subnet, Cloud Router, and Cloud NAT.
+- Firewall rules for SSH, internal traffic, TLS Notary, HTTP, and HTTPS.
+- A VM service account with Logging and Monitoring writer roles.
+- TLS Notary server built from the `livylabs/tlsn` `tee_dev` branch.
+- TLS Notary TEE proxy for prove/attestation flows.
+- Nginx reverse proxy.
+- Optional Let's Encrypt HTTPS when `domain_name` resolves to the VM external IP.
 
-Run the comprehensive test suite to verify your deployment:
+## Bootstrap Flow
 
-```bash
+Cloud-init writes the required config and scripts to the VM, then runs:
 
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Return to project root and run tests
-cd ..
-./test-deployment.sh
+```text
+/opt/scripts/core.sh
+/opt/scripts/install.sh
+/opt/scripts/run.sh
+/opt/scripts/setup-https.sh
 ```
 
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
+The scripts are idempotent and fail at the real failing step. Their responsibilities are:
 
-**Expected Test Results**:
-- ✅ Infrastructure Health: Instance is RUNNING
-- ✅ TLSn Service Status: Service is active
-- ✅ Health Endpoint: Returns "Ok"
-- ✅ TDX Status: Intel TDX memory encryption active
-- ✅ Native Binary: Compiled binary exists and is executable
-- ✅ Process Memory Usage: Service running natively
-- ✅ Service Logs: Recent activity detected
-- ✅ Intel Trust Authority CLI: Installed and configured
+- `core.sh`: install host packages, install Rust, install Intel Trust Authority CLI, verify TDX, configure `trustauthority-cli` access.
+- `install.sh`: create TLS Notary config, clone/update `livylabs/tlsn`, build `notary-server` and the TEE proxy.
+- `run.sh`: write systemd units, start and enable `tls-notary-server` and `tls-notary-proxy`, wait for local health checks.
+- `setup-https.sh`: configure Nginx, proxy traffic to the services, and request a Let's Encrypt certificate only when DNS already points at the instance IP.
 
-#### Manual Testing
+## Requirements
 
-You can also test the service manually:
+- Google Cloud project with billing enabled.
+- `gcloud` authenticated for the target project.
+- Application Default Credentials configured for Terraform.
+- Terraform installed locally.
+- Intel Trust Authority API key.
+- Optional DNS A record for HTTPS.
 
-```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Get the external IP from Terraform output
-terraform output -raw instance_external_ip
-
-# Test the health endpoint directly
-curl http://EXTERNAL_IP:7047/healthcheck
-# Expected response: "Ok"
-
-# Access the web interface
-open http://EXTERNAL_IP:7047
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-### 6. Access the TLS Notary Server
-
-#### Web Interface
-
-The TLS Notary server provides a simple web interface at:
-- **HTTP**: `http://EXTERNAL_IP:7047`
-- **HTTPS**: `https://tlsn.livylabs.xyz` (if DNS is configured)
-
-The interface displays:
-- Server version information
-- Public key for cryptographic verification
-- Git commit hash
-- Health check endpoint
-- Server information endpoint
-
-#### API Endpoints
-
-| Endpoint | Purpose | Response |
-|----------|---------|----------|
-| `/healthcheck` | Service health status | `"Ok"` |
-| `/info` | Server information | JSON with server details |
-| `/` | Web interface | HTML page with server info |
-
-#### Service Architecture
-
-The deployed service includes:
-- **TLS Notary Server**: Core notarization service on port 7047
-- **Nginx Reverse Proxy**: HTTPS termination and load balancing
-- **Intel TDX**: Hardware-based confidential computing
-- **Intel Trust Authority**: Hardware attestation and verification
-- **Systemd Service**: Automatic service management and restart
-
-## File Locations
-
-| File | Location | Purpose |
-|------|----------|---------|
-| TLSn Binary | `/home/livy/src/tlsn/target/release/notary-server` | Compiled notary server |
-| TLSn Config | `/home/livy/tls-notary-config/config.toml` | Server configuration |
-| Signing Key | `/home/livy/tls-notary-config/notary-signing-key.pem` | Notary signing key |
-| Intel TA Config | `/home/livy/config.json` | Trust Authority configuration |
-| Service File | `/etc/systemd/system/tls-notary-server.service` | Systemd service definition |
-| Source Code | `/home/livy/src/tlsn/` | TLSn source code |
-| Nginx Config | `/etc/nginx/sites-available/tlsn` | HTTPS proxy configuration |
-| SSL Certificates | `/etc/letsencrypt/live/${domain_name}/` | Let's Encrypt certificates (dynamic based on domain_name variable) |
-
-## Troubleshooting
-
-### Common Issues
-
-#### Service Not Starting
-```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Check service status
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo systemctl status tls-notary-server"
-
-# Check logs
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo journalctl -u tls-notary-server -f"
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-#### Build Failures
-```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Check cloud-init logs
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo tail -100 /var/log/cloud-init-output.log"
-
-# Check if build is still running
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="ps aux | grep cargo"
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-#### HTTPS Certificate Issues
-```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Check nginx status
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo systemctl status nginx"
-
-# Check certificate status
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo certbot certificates"
-```
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-### Performance Monitoring
+For the current test environment:
 
 ```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-# Check resource usage
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="htop"
-
-# Monitor TLS Notary logs
-gcloud compute ssh test-notary-instance --zone=us-central1-a --command="sudo journalctl -u tls-notary-server -f"
+gcloud config set project livy-infra
+gcloud auth application-default set-quota-project livy-infra
 ```
 
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
+## Configuration
+
+Create a local tfvars file:
+
+```bash
+cp infra/environments/example.test.tfvars infra/environments/test.tfvars
+```
+
+Set at least:
+
+```hcl
+project_id = "livy-infra"
+
+trustauthority_api_key = "your Intel Trust Authority API key"
+domain_name            = "tlsn.livylabs.xyz"
+certificate_email      = "contact@livylabs.xyz"
+```
+
+`infra/environments/test.tfvars` is gitignored because it contains secrets.
+
+## Deploy
+
+```bash
+cd infra
+terraform init
+terraform apply -var-file="environments/test.tfvars" -auto-approve
+```
+
+After apply, Terraform outputs the VM IP, HTTP endpoint, HTTPS endpoint, SSH command, and Intel Trust Authority test commands.
+
+Current test deployment:
+
+```text
+https://tlsn.livylabs.xyz/healthcheck
+```
+
+Expected response:
+
+```text
+Ok
+```
+
+## DNS And Destroy/Apply
+
+The current Terraform uses an ephemeral external IP:
+
+```hcl
+access_config {}
+```
+
+That means a `terraform destroy` followed by `terraform apply` can assign a different IP. The services should still deploy, but HTTPS will only configure automatically if `domain_name` resolves to the new VM IP before `setup-https.sh` runs.
+
+For a fully repeatable destroy/apply flow with HTTPS, add a reserved static IP resource and attach it to the VM, then point DNS at that static IP once.
+
+If DNS is not ready during first boot, `setup-https.sh` leaves Nginx HTTP proxying configured and skips certificate issuance without failing the whole bootstrap.
+
+## Useful Commands
+
+Check Terraform state:
+
+```bash
+cd infra
+terraform plan -var-file="environments/test.tfvars"
+```
+
+Check whether the VM bootstrap is still running:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo cloud-init status --long"
+```
+
+Interpretation:
+
+- `status: running`: cloud-init is still running the install scripts. This is expected while packages install and Rust builds TLSN.
+- `status: done`: bootstrap finished.
+- `status: error`: bootstrap failed. Check the cloud-init log.
+
+Wait until bootstrap exits:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo cloud-init status --wait"
+```
+
+Watch bootstrap logs live:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo tail -f /var/log/cloud-init-output.log"
+```
+
+Check services:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="systemctl is-active tls-notary-server tls-notary-proxy nginx"
+```
+
+Check logs:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo journalctl -u tls-notary-server -u tls-notary-proxy --no-pager -n 100"
+```
 
 ## Cleanup
 
-To destroy the infrastructure:
-
 ```bash
-
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
 cd infra
 terraform destroy -var-file="environments/test.tfvars"
 ```
 
-**Important**: The `domain_name` variable determines:
-- HTTPS endpoint URL: `https://${domain_name}`
-- SSL certificate path: `/etc/letsencrypt/live/${domain_name}/`
-- Nginx server configuration
-
-**Warning**: This will permanently delete all resources including the instance, VPC, and any stored data.
+This deletes the managed VM, network resources, firewall rules, service account bindings, and local Terraform-managed infrastructure.
 
 ## References
 
