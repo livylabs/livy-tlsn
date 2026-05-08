@@ -5,6 +5,7 @@ PROJECT_ID="${PROJECT_ID:-livy-infra}"
 ZONE="${ZONE:-us-central1-a}"
 INSTANCE="${INSTANCE:-test-notary-instance}"
 DOMAIN_NAME="${DOMAIN_NAME:-tlsn.livylabs.xyz}"
+EXPECTED_TLSN_BRANCH="${EXPECTED_TLSN_BRANCH:-}"
 
 SSH_BASE=(
   gcloud compute ssh "$INSTANCE"
@@ -84,6 +85,14 @@ grep -q 'Intel TDX' <<<"$tdx_status" || fail "TDX memory encryption is not activ
 pass "$tdx_status"
 
 section "Binaries"
+tlsn_branch="$(remote "sudo -u livy env HOME=/home/livy git -C /home/livy/src/tlsn rev-parse --abbrev-ref HEAD")"
+if [ -n "$EXPECTED_TLSN_BRANCH" ]; then
+  [ "$tlsn_branch" = "$EXPECTED_TLSN_BRANCH" ] || fail "TLSN branch is $tlsn_branch, expected $EXPECTED_TLSN_BRANCH"
+  pass "TLSN branch is $EXPECTED_TLSN_BRANCH"
+else
+  pass "TLSN branch is $tlsn_branch"
+fi
+
 remote "test -x /home/livy/src/tlsn/target/release/notary-server"
 pass "notary-server binary exists"
 

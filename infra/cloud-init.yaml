@@ -49,7 +49,7 @@ runcmd:
   - |
     set -eu
     /opt/scripts/core.sh
-    /opt/scripts/install.sh
+    /opt/scripts/install.sh "${tlsn_branch}"
     /opt/scripts/run.sh
     /opt/scripts/setup-https.sh "${domain_name}" "${certificate_email}"
 

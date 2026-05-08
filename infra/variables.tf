@@ -70,6 +70,12 @@ variable "tls_notary_version" {
   default     = "latest"
 }
 
+variable "tlsn_branch" {
+  description = "livylabs/tlsn branch to deploy"
+  type        = string
+  default     = "tee_dev"
+}
+
 variable "tls_notary_port" {
   description = "Port for TLS Notary server"
   type        = number

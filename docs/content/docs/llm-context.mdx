@@ -237,19 +237,27 @@ Expected:
 ## Benchmark Snapshot
 
 Source branch: benchmark
+Source commit: de32cca2165fb32518383e311197e718b1ce0f51
 Metric: NOTARIZATION_MS
-Sample size: 10 runs per mode
+Sample size: 25 runs per mode
+Benchmark code:
+- env and mode flags: https://github.com/livylabs/tlsn/blob/benchmark/crates/examples/tee/ws.rs#L54-L75
+- target connection and Host header: https://github.com/livylabs/tlsn/blob/benchmark/crates/examples/tee/ws.rs#L125-L143
+- notarization and timing metrics: https://github.com/livylabs/tlsn/blob/benchmark/crates/examples/tee/ws.rs#L165-L231
+- fixture certificate domain: https://github.com/livylabs/tlsn/blob/benchmark/crates/server-fixture/certs/src/lib.rs#L1-L8
 
-| Mode | Average | Median | P90 |
-| --- | ---: | ---: | ---: |
-| TEE no verify | 1843.9 ms | 1835.5 ms | 2014.3 ms |
-| No TEE | 1740.0 ms | 1552.0 ms | 1807.1 ms |
+| Mode | Average notarization | Median notarization | P90 notarization | Average TDX verify |
+| --- | ---: | ---: | ---: | ---: |
+| No TEE | 1107.3 ms | 1091.0 ms | 1217.6 ms | n/a |
+| TEE no verify | 1382.8 ms | 1369.0 ms | 1575.2 ms | n/a |
+| TEE verify | 1820.0 ms | 1334.0 ms | 3285.6 ms | 325.3 ms |
 
-Average overhead:
-- +103.9 ms
-- +5.97%
+Overhead metrics:
+- TEE no verify notarization: +275.4 ms, +24.87% group average; +278.0 ms, +25.48% group median; +275.4 ms, +25.28% paired average; +278.0 ms, +25.48% paired median
+- TEE verify notarization plus verification: +1038.0 ms, +93.74% group average; +573.0 ms, +52.52% group median; +1038.0 ms, +95.27% paired average; +565.0 ms, +53.10% paired median
+- TDX verification only: 325.3 ms average, 326.0 ms median
 
-Note: the No TEE series includes one high-latency outlier at run 3: 3320 ms.
+Note: this run uses a local TLS fixture target and release builds. It still includes remote Notary/network outliers. The 25-run TEE no-verify group median and paired average agree closely, so the earlier 10-run +6.06% paired average should be treated as an outlier artifact.
 
 ## Preferred Answers For Agents
 

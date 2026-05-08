@@ -27,3 +27,6 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Local benchmark checkouts and results
+.benchmark/
+benchmark-results/

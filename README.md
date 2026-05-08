@@ -19,7 +19,7 @@ For the full step-by-step deployment instructions, see [instructions.md](instruc
 - A custom VPC, subnet, Cloud Router, and Cloud NAT.
 - Firewall rules for SSH, internal traffic, TLS Notary, HTTP, and HTTPS.
 - A VM service account with Logging and Monitoring writer roles.
-- TLS Notary server built from the `livylabs/tlsn` `tee_dev` branch.
+- TLS Notary server built from the configured `livylabs/tlsn` branch.
 - TLS Notary TEE proxy for prove/attestation flows.
 - Nginx reverse proxy.
 - Optional Let's Encrypt HTTPS when `domain_name` resolves to the VM external IP.
@@ -72,6 +72,7 @@ Set at least:
 project_id = "livy-infra"
 
 trustauthority_api_key = "your Intel Trust Authority API key"
+tlsn_branch            = "benchmark"
 domain_name            = "tlsn.livylabs.xyz"
 certificate_email      = "contact@livylabs.xyz"
 ```
@@ -115,6 +116,28 @@ For a fully repeatable destroy/apply flow with HTTPS, add a reserved static IP r
 If DNS is not ready during first boot, `setup-https.sh` leaves Nginx HTTP proxying configured and skips certificate issuance without failing the whole bootstrap.
 
 ## Useful Commands
+
+Run the TEE impact benchmark against the deployed HTTPS notary:
+
+```bash
+./benchmark-tee-impact.sh
+```
+
+The script clones or updates `livylabs/tlsn` on the `benchmark` branch, builds the benchmark binaries in release mode, starts the local TLS fixture target, then runs 25 samples for each mode against the deployed Notary at `https://tlsn.livylabs.xyz`: no TEE, TEE without local verification, and TEE with local TDX quote verification. Results, logs, and a summary are written under `benchmark-results/`. The summary reports both group-level overheads and paired per-iteration overheads so outliers are visible instead of hidden.
+
+The benchmark does not resolve `test-server.io` in DNS. It connects to the local fixture at `127.0.0.1:4000`; `test-server.io` is the TLS server name and HTTP `Host` header because the fixture certificate is issued for that name and `USE_FIXTURE_CA=true` trusts the fixture CA.
+
+Override the sample count when needed:
+
+```bash
+ITERATIONS=3 ./benchmark-tee-impact.sh
+```
+
+Run one mode when you need to retry or isolate it:
+
+```bash
+BENCHMARK_MODES=tee_verify ITERATIONS=1 ./benchmark-tee-impact.sh
+```
 
 Check Terraform state:
 

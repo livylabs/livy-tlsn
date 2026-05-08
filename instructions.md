@@ -50,6 +50,7 @@ Set these values in `infra/environments/test.tfvars`:
 project_id = "livy-infra"
 
 trustauthority_api_key = "your Intel Trust Authority API key"
+tlsn_branch            = "benchmark"
 domain_name            = "tlsn.livylabs.xyz"
 certificate_email      = "contact@livylabs.xyz"
 ```
@@ -105,7 +106,7 @@ Cloud-init runs these scripts on first boot:
 
 - Creates `/home/livy/tls-notary-config`.
 - Creates the Notary config and signing key if missing.
-- Clones or updates `https://github.com/livylabs/tlsn.git` on branch `tee_dev`.
+- Clones or updates `https://github.com/livylabs/tlsn.git` on the configured `tlsn_branch`.
 - Builds `notary-server` and the `notary-tee` proxy example in release mode.
 
 `run.sh` starts services:
@@ -226,6 +227,22 @@ Run the repository deployment test from the project root:
 ```
 
 The test checks the Terraform-managed instance, service status, health endpoint, TDX state, built binaries, service logs, and Intel Trust Authority CLI configuration.
+
+Run the TEE impact benchmark from the project root:
+
+```bash
+./benchmark-tee-impact.sh
+```
+
+The script clones or updates `livylabs/tlsn` on the `benchmark` branch, builds the benchmark binaries in release mode, starts the local TLS fixture target, then runs 25 samples for each mode against the deployed Notary at `https://tlsn.livylabs.xyz`: no TEE, TEE without local verification, and TEE with local TDX quote verification. It writes CSV results, a summary, and per-run logs under `benchmark-results/`. The summary reports both group-level overheads and paired per-iteration overheads so outliers are visible instead of hidden.
+
+The benchmark does not resolve `test-server.io` in DNS. It connects to the local fixture at `127.0.0.1:4000`; `test-server.io` is the TLS server name and HTTP `Host` header because the fixture certificate is issued for that name and `USE_FIXTURE_CA=true` trusts the fixture CA.
+
+Retry or isolate one mode with `BENCHMARK_MODES`, for example:
+
+```bash
+BENCHMARK_MODES=tee_verify ITERATIONS=1 ./benchmark-tee-impact.sh
+```
 
 Manual checks:
 

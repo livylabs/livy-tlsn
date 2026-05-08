@@ -50,6 +50,7 @@ resource "google_compute_instance" "notary_instance" {
     user-data = templatefile("${path.module}/cloud-init.yaml", {
       trustauthority_api_key = var.trustauthority_api_key
       environment            = var.environment
+      tlsn_branch            = var.tlsn_branch
       domain_name            = var.domain_name
       certificate_email      = var.certificate_email
       core_script_b64        = base64encode(file("${path.module}/scripts/core.sh"))

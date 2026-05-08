@@ -11,7 +11,7 @@ fail() {
 }
 
 TLSN_REPO_URL="https://github.com/livylabs/tlsn.git"
-TLSN_BRANCH="tee_dev"
+TLSN_BRANCH="${1:-${TLSN_BRANCH:-tee_dev}}"
 TLSN_DIR="/home/livy/src/tlsn"
 CONFIG_DIR="/home/livy/tls-notary-config"
 
@@ -37,7 +37,7 @@ path = "./notary-signing-key.pem"
 EOF
 '
 
-log "syncing TLSN source"
+log "syncing TLSN source from $TLSN_BRANCH"
 sudo -u livy env HOME=/home/livy TLSN_REPO_URL="$TLSN_REPO_URL" TLSN_BRANCH="$TLSN_BRANCH" TLSN_DIR="$TLSN_DIR" bash -c '
   set -euo pipefail
   if [ ! -d "$TLSN_DIR/.git" ]; then
@@ -46,8 +46,8 @@ sudo -u livy env HOME=/home/livy TLSN_REPO_URL="$TLSN_REPO_URL" TLSN_BRANCH="$TL
     cd "$TLSN_DIR"
     git remote set-url origin "$TLSN_REPO_URL"
     git fetch origin "$TLSN_BRANCH"
-    git checkout "$TLSN_BRANCH"
-    git pull --ff-only origin "$TLSN_BRANCH"
+    git checkout -B "$TLSN_BRANCH" FETCH_HEAD
+    git reset --hard FETCH_HEAD
   fi
 '
 

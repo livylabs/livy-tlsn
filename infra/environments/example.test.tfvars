@@ -10,6 +10,7 @@ allowed_ssh_sources = [
   "0.0.0.0/0"
 ]
 tls_notary_version = "latest"
+tlsn_branch        = "benchmark"
 tls_notary_port    = 7047
 allowed_notary_sources = [
   "0.0.0.0/0"

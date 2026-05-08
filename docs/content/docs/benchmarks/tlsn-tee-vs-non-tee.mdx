@@ -7,10 +7,19 @@ description: Notarization-only TEE overhead measurements from the tlsn benchmark
 
 - Repository: [`livylabs/tlsn`](https://github.com/livylabs/tlsn)
 - Branch: `benchmark`
+- Commit used for this run:
+  [`de32cca`](https://github.com/livylabs/tlsn/tree/de32cca2165fb32518383e311197e718b1ce0f51)
 - Metric:
-  `NOTARIZATION_MS`
+  `NOTARIZATION_MS`, `TDX_VERIFY_MS`
 - Sample size:
-  10 runs per mode
+  25 runs per mode
+- Run:
+  `benchmark-results/20260508T150207Z-fixture-release-25-complete/results.csv`
+- Benchmark source links:
+  [`tee_ws` env and mode flags](https://github.com/livylabs/tlsn/blob/benchmark/crates/examples/tee/ws.rs#L54-L75),
+  [`tee_ws` target connection and Host header](https://github.com/livylabs/tlsn/blob/benchmark/crates/examples/tee/ws.rs#L125-L143),
+  [`tee_ws` notarization and timing metrics](https://github.com/livylabs/tlsn/blob/benchmark/crates/examples/tee/ws.rs#L165-L231),
+  [`test-server.io` fixture certificate domain](https://github.com/livylabs/tlsn/blob/benchmark/crates/server-fixture/certs/src/lib.rs#L1-L8)
 
 These measurements were collected from the benchmark branch. The implementation docs elsewhere use `tee_dev` as the source of truth.
 
@@ -18,41 +27,97 @@ These measurements were collected from the benchmark branch. The implementation 
 
 - `TEE no verify`:
   notarization with TDX attestation requested, excluding local quote verification time.
+- `TEE verify`:
+  notarization with TDX attestation requested, followed by local TDX quote verification.
 - `No TEE`:
   normal TLSN notarization without the extra TDX attestation message.
 
 ## Methodology
 
-Each row below is one notarization run. The values are elapsed milliseconds for the notarization phase only, not full end-to-end request time.
+Each row below is one notarization run. The benchmark uses release binaries, the public TDX Notary at `tlsn.livylabs.xyz`, and a local TLS fixture as the target server. The values are elapsed milliseconds for the notarization phase only unless the column explicitly includes local verification.
+
+The benchmark does not resolve `test-server.io` in DNS. The TCP connection goes to `TARGET_HOST=127.0.0.1` and `TARGET_PORT=4000`; `TARGET_SERVER_NAME=test-server.io` is used for TLS SNI, certificate validation, and the HTTP `Host` header. The fixture package includes a certificate for `test-server.io`, and `USE_FIXTURE_CA=true` configures the example to trust that fixture CA.
+
+Run the current benchmark from the infra repository root:
+
+```bash
+./benchmark-tee-impact.sh
+```
+
+The script uses these defaults:
+
+- `TLSN_BRANCH=benchmark`
+- `ITERATIONS=25`
+- `BENCHMARK_MODES="no_tee tee_no_verify tee_verify"`
+- `START_FIXTURE=1`
+- `FIXTURE_ADDR=127.0.0.1`
+- `FIXTURE_PORT=4000`
+- `NOTARY_SCHEME=https`
+- `NOTARY_HOST=tlsn.livylabs.xyz`
+- `NOTARY_PORT=443`
+- `TARGET_HOST=127.0.0.1`
+- `TARGET_PORT=4000`
+- `TARGET_SERVER_NAME=test-server.io`
+- `TARGET_URI=/formats/json?size=4`
+- `USE_FIXTURE_CA=true`
+- `MAX_SENT_DATA=4096`
+- `MAX_RECV_DATA=16384`
+- `RUN_TIMEOUT_SECONDS=300`
+
+It writes `benchmark-results/<timestamp>/results.csv`, `summary.txt`, and per-run stdout and stderr logs. The CSV includes both `tdx_verify_ms` and `notarization_plus_verify_ms` so verification cost is reported separately from the notarization phase.
 
 ## Per-Run Results
 
-| Run | TEE no verify (ms) | No TEE (ms) | Delta (ms) |
-| ---: | ---: | ---: | ---: |
-| 1 | 1999 | 1625 | 374 |
-| 2 | 1716 | 1516 | 200 |
-| 3 | 1824 | 3320 | -1496 |
-| 4 | 1736 | 1529 | 207 |
-| 5 | 1660 | 1515 | 145 |
-| 6 | 1847 | 1639 | 208 |
-| 7 | 1945 | 1604 | 341 |
-| 8 | 1708 | 1551 | 157 |
-| 9 | 2152 | 1553 | 599 |
-| 10 | 1852 | 1548 | 304 |
+| Run | No TEE notarization (ms) | TEE no verify notarization (ms) | TEE verify notarization (ms) | TDX verify (ms) | TEE verify notarization + verify (ms) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1097 | 1644 | 5594 | 384 | 5978 |
+| 2 | 1091 | 1369 | 1267 | 300 | 1567 |
+| 3 | 1032 | 1396 | 1464 | 298 | 1762 |
+| 4 | 1091 | 1322 | 1279 | 332 | 1611 |
+| 5 | 1205 | 1422 | 1550 | 294 | 1844 |
+| 6 | 1086 | 1343 | 1258 | 334 | 1592 |
+| 7 | 1131 | 1230 | 1255 | 296 | 1551 |
+| 8 | 1107 | 1216 | 3626 | 356 | 3982 |
+| 9 | 1047 | 1402 | 1258 | 329 | 1587 |
+| 10 | 1083 | 1511 | 1412 | 319 | 1731 |
+| 11 | 1226 | 1389 | 1330 | 300 | 1630 |
+| 12 | 1250 | 1269 | 1318 | 346 | 1664 |
+| 13 | 1104 | 1280 | 1242 | 308 | 1550 |
+| 14 | 1041 | 1618 | 1298 | 297 | 1595 |
+| 15 | 1029 | 1242 | 1357 | 358 | 1715 |
+| 16 | 1045 | 1382 | 1334 | 310 | 1644 |
+| 17 | 1088 | 1498 | 2775 | 376 | 3151 |
+| 18 | 1259 | 1647 | 1293 | 326 | 1619 |
+| 19 | 1083 | 1268 | 1354 | 338 | 1692 |
+| 20 | 1200 | 1260 | 1428 | 308 | 1736 |
+| 21 | 1114 | 1343 | 1297 | 339 | 1636 |
+| 22 | 1047 | 1345 | 5179 | 350 | 5529 |
+| 23 | 1046 | 1337 | 1385 | 309 | 1694 |
+| 24 | 1117 | 1454 | 1645 | 300 | 1945 |
+| 25 | 1064 | 1382 | 1303 | 326 | 1629 |
 
 ## Summary Statistics
 
-| Mode | Average (ms) | Median (ms) | P90 (ms) |
-| --- | ---: | ---: | ---: |
-| TEE no verify | 1843.9 | 1835.5 | 2014.3 |
-| No TEE | 1740.0 | 1552.0 | 1807.1 |
+| Mode | Average notarization (ms) | Median notarization (ms) | P90 notarization (ms) | Average TDX verify (ms) | Average notarization + verify (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| No TEE | 1107.3 | 1091.0 | 1217.6 | n/a | 1107.3 |
+| TEE no verify | 1382.8 | 1369.0 | 1575.2 | n/a | 1382.8 |
+| TEE verify | 1820.0 | 1334.0 | 3285.6 | 325.3 | 2145.4 |
 
 ## Overhead
 
-| Comparison | Average overhead | Percent overhead |
-| --- | ---: | ---: |
-| TEE no verify - No TEE | +103.9 ms | +5.97% |
+| Comparison | Group average overhead | Group median overhead | Paired average overhead | Paired median overhead |
+| --- | ---: | ---: | ---: | ---: |
+| TEE no verify notarization - No TEE notarization | +275.4 ms, +24.87% | +278.0 ms, +25.48% | +275.4 ms, +25.28% | +278.0 ms, +25.48% |
+| TEE verify notarization + verify - No TEE notarization | +1038.0 ms, +93.74% | +573.0 ms, +52.52% | +1038.0 ms, +95.27% | +565.0 ms, +53.10% |
+| TDX verification only | 325.3 ms | 326.0 ms | n/a | n/a |
 
 ## Notes
 
-The No TEE series includes one high-latency outlier at run 3 (`3320 ms`). That outlier raises the No TEE average and P90, so the median comparison is also useful when reading this result.
+This run removes public target-server variance by using the local TLS fixture. The public Notary path can still produce network or service outliers. The initial 25-run pass had three timeout rows; those rows were retried with a 300-second timeout and folded into the complete result set.
+
+With 25 samples, the TEE no-verify group median and paired average agree closely, so the earlier 10-run `+6.06%` paired average was an outlier artifact. TEE verify includes several high notarization runs, so its average is higher than its median. For this run, use these headline figures:
+
+- TEE no verify median overhead over No TEE: `+278.0 ms`, or about `+25.48%`.
+- TEE verify median notarization + verification overhead over No TEE: `+573.0 ms`, or about `+52.52%`.
+- TDX verification median: `326.0 ms`.
