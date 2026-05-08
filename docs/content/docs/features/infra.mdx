@@ -1,0 +1,73 @@
+---
+title: Infra
+description: Feature breakdown for the livy-tlsn infrastructure repository.
+---
+
+## Repo Scope
+
+- Repository: [`livylabs/livy-tlsn`](https://github.com/livylabs/livy-tlsn)
+- Relevant files:
+  - `README.md`
+  - `infra/main.tf`
+  - `infra/variables.tf`
+  - `infra/scripts/core.sh`
+  - `infra/scripts/install.sh`
+  - `infra/scripts/run.sh`
+  - `infra/scripts/setup-https.sh`
+  - `test-deployment.sh`
+
+## `/prove`
+
+### Public Surface
+
+- The infrastructure exposes `https://${domain_name}/api/v1/prove`.
+- nginx forwards `/api/v1/prove` to the local `notary-tee` proxy on port `7048`.
+- Job artifact download endpoints are exposed through the same HTTPS front door:
+  - `/api/v1/jobs/<job_id>/attestation`
+  - `/api/v1/jobs/<job_id>/secrets`
+
+### Integration Touchpoints
+
+- `install.sh` clones `livylabs/tlsn`, checks out `tee_dev`, and builds:
+  - `notary-server` with `--features tee_quote`
+  - `notary-tee` proxy example
+- `run.sh` creates systemd units for:
+  - native Notary server on port `7047`
+  - TEE proxy on port `7048`
+- `setup-https.sh` configures nginx and Let's Encrypt certificates for the configured `domain_name`.
+
+## `/notarize`
+
+### Public Surface
+
+- The infrastructure exposes the native Notary over HTTPS.
+- Clients create sessions through `/session` and upgrade to `/notarize` over WebSocket.
+- The main client example is [`crates/examples/tee/ws.rs`](https://github.com/livylabs/tlsn/blob/tee_dev/crates/examples/tee/ws.rs).
+
+### Integration Touchpoints
+
+- The native Notary service runs from `/home/livy/src/tlsn/target/release/notary-server`.
+- HTTPS traffic is terminated by nginx and proxied to `127.0.0.1:7047`.
+- `run.sh` sets:
+  - `PATH_TEE_CONFIG=/home/livy/config.json`
+  - `NS_TEE=true`
+
+## TDX Infrastructure
+
+- Terraform provisions a GCP confidential compute instance with Intel TDX enabled.
+- The base OS is Ubuntu 24.04 LTS.
+- cloud-init runs the core install, source checkout, build, service startup, and HTTPS setup scripts.
+- Intel Trust Authority CLI is installed and configured for hardware attestation.
+
+## Validation
+
+`test-deployment.sh` verifies:
+
+- GCP instance state
+- TDX memory encryption status
+- Notary systemd service status
+- Trust Authority CLI availability
+- native binary existence
+- public health endpoint behavior
+
+For the full infrastructure runbook, see [Infra](/docs/examples/infra) and [TDX Notary Runbook](/docs/deployment/tdx-notary).

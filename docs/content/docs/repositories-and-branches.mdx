@@ -1,0 +1,70 @@
+---
+title: Repositories & Branches
+description: Source map for the TLSN TDX implementation and deployment infrastructure.
+---
+
+## tlsn
+
+Repository: [`livylabs/tlsn`](https://github.com/livylabs/tlsn)
+
+Branch: `tee_dev`
+
+This is the implementation repo. Use it for protocol changes, Notary server behavior, prover example code, and TDX attestation plumbing.
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| WebSocket TDX example | [`crates/examples/tee/ws.rs`](https://github.com/livylabs/tlsn/blob/tee_dev/crates/examples/tee/ws.rs) | Main runnable example. Creates a session with `tee_attestation: Some(true)`, calls `notarize_with_tee`, verifies the TDX quote, and writes TLSN artifacts. |
+| Shared messages | `crates/common/src/msg.rs` | Defines the TDX attestation message shapes exchanged after notarization. |
+| Session request type | `crates/notary/common/src/lib.rs` | `tee_attestation` is serialized as JSON `teeAttestation`. |
+| Notary service flow | `crates/notary/server/src/service.rs` | Stores the per-session TEE flag and uses it during `/notarize`. |
+| Notary server startup and `/info` | `crates/notary/server/src/server.rs` | Wires server config, startup checks, and feature-gated quote exposure. |
+| TDX helper code | `crates/notary/server/src/tee_tdx.rs` | Calls Trust Authority and handles TDX evidence. |
+| `/prove` proxy | `crates/notary/server/notary-tee/` | Proxy-backed REST surface for `/api/v1/prove`. |
+| Notary Dockerfile | `crates/notary/server/notary-server.Dockerfile` | Base image path for containerized Notary runs. |
+
+Build the Notary with the TDX `/info` quote field:
+
+```bash
+cargo build --release --bin notary-server --features tee_quote
+```
+
+Run the main example:
+
+```bash
+cargo run -p tlsn-examples --example tee_ws
+```
+
+## Infra
+
+Repository: [`livylabs/livy-tlsn`](https://github.com/livylabs/livy-tlsn)
+
+This is the deployment repo. Use it for Terraform, GCP confidential VM setup, Intel Trust Authority configuration, nginx HTTPS routing, and systemd service management.
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| README | [`README.md`](https://github.com/livylabs/livy-tlsn) | High-level infra runbook. |
+| Terraform root | `infra/main.tf` | Provisions the GCP network and TDX instance. |
+| Terraform variables | `infra/variables.tf` | Defines deployment inputs such as `domain_name`, machine type, and Trust Authority key. |
+| Core host setup | `infra/scripts/core.sh` | Installs system dependencies and prepares the VM. |
+| Build script | `infra/scripts/install.sh` | Clones `livylabs/tlsn`, checks out `tee_dev`, and builds the Notary binaries. |
+| Service startup | `infra/scripts/run.sh` | Creates and starts systemd services for the Notary and proxy. |
+| HTTPS setup | `infra/scripts/setup-https.sh` | Configures nginx and Let's Encrypt for `domain_name`. |
+| Deployment test | `test-deployment.sh` | Checks VM health, TDX status, service status, Trust Authority CLI, and public endpoints. |
+
+The public deployment shape is:
+
+| Public path | Local backend |
+| --- | --- |
+| `/session` | native Notary on `127.0.0.1:7047` |
+| `/notarize` | native Notary on `127.0.0.1:7047` |
+| `/info` | native Notary on `127.0.0.1:7047` |
+| `/healthcheck` | native Notary on `127.0.0.1:7047` |
+| `/api/v1/prove` | `notary-tee` proxy on `127.0.0.1:7048` |
+| `/api/v1/jobs/<job_id>/attestation` | `notary-tee` proxy on `127.0.0.1:7048` |
+| `/api/v1/jobs/<job_id>/secrets` | `notary-tee` proxy on `127.0.0.1:7048` |
+
+## Branch Policy
+
+Use `tee_dev` as the source of truth for implementation behavior, examples, deployment notes, and security details.
+
+Use `benchmark` only for the notarization measurement table in [TEE vs No TEE](/docs/benchmarks/tlsn-tee-vs-non-tee).

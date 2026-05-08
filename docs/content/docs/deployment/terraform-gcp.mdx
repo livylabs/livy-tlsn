@@ -1,4 +1,9 @@
-# Livy TLSN Terraform Deployment
+---
+title: Terraform GCP Deployment
+description: Deploy the TDX-backed TLS Notary service on Google Cloud with Terraform and cloud-init.
+---
+
+## Goal
 
 Deploy the Livy TLSN Notary service on Google Cloud using Terraform. A normal deploy should be:
 
@@ -8,8 +13,6 @@ terraform apply -var-file="environments/test.tfvars" -auto-approve
 ```
 
 Terraform creates or updates the infrastructure, writes the cloud-init payload to the VM metadata, and the VM runs the bootstrap scripts automatically. You should not need to SSH into the VM or run the scripts by hand during a normal deployment.
-
-The docs app version of this runbook lives at `docs/content/docs/deployment/terraform-gcp.mdx`.
 
 ## Prerequisites
 
@@ -234,3 +237,4 @@ cd infra
 terraform output -raw instance_external_ip
 curl https://tlsn.livylabs.xyz/healthcheck
 ```
+

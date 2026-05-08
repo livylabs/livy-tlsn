@@ -1,0 +1,43 @@
+---
+title: Attestation Verification
+description: How attestation is verified and how it feeds into trust decisions.
+---
+
+## Evidence Collected
+
+For TEE-enabled notarization, the prover receives the normal TLSN attestation and secrets plus an extra `TeeAttestation` payload. The TDX payload mirrors Intel Trust Authority evidence and includes report data that should bind to the Notary public key.
+
+The server may also expose an initialization quote from `/info` when `notary-server` is built with `--features tee_quote`.
+
+## Verification Procedure
+
+1. Create the Notary session with `teeAttestation: true`.
+2. Complete the normal `/notarize` WebSocket flow.
+3. Verify the TLSN attestation and secrets using the normal TLSNotary policy.
+4. Verify the TDX evidence chain against Intel Trust Authority trust anchors.
+5. Check the expected measurement or deployment policy.
+6. Extract report data from the quote.
+7. Compare the report data against the Notary public key returned by `/info`.
+8. Accept the TEE claim only if both TLSN verification and TDX verification pass.
+
+## Inputs Required By The Verifier
+
+- Trust Authority trust anchors and policy.
+- Expected Notary public key or a trusted way to fetch `/info`.
+- Freshness policy for quote or evidence age.
+- Application policy for what to do if TDX evidence is absent.
+
+## What Gets Bound To What
+
+- TEE measurement to Notary runtime:
+  checked through Trust Authority evidence.
+- Notary runtime to public key:
+  checked by comparing quote report data with the Notary public key.
+- Public key to notarization:
+  checked through the normal TLSN attestation verification path.
+
+## Operational Guidance
+
+Surface TDX failures separately from TLSN verification failures. A TLSN artifact may be structurally valid while the TEE claim is missing, stale, or mismatched.
+
+Avoid logging full secrets or transcript material. It is usually safe to log high-level attestation status, quote verification result, Notary public key fingerprint, and non-sensitive error messages.

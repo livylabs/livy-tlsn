@@ -1,0 +1,216 @@
+---
+title: TDX Notary Runbook
+description: Build, configure, and run the TEE-enhanced Notary with Intel TDX attestation.
+---
+
+## Goal
+
+Run a TLSNotary server that can attach Intel TDX evidence to a notarization session. The server can still handle normal TLSN sessions, but when a client creates a session with `teeAttestation: true`, the Notary calls Intel Trust Authority and sends an extra TDX attestation message to the prover after the TLSN attestation.
+
+For a broader walkthrough of Livy's verifiable-compute model, use the [Livy example model](https://docs.livylabs.xyz/docs/get-started/livy-example-model). This page stays focused on the Notary-specific runbook.
+
+## What Changed
+
+The TDX work adds a shared attestation message shape in `crates/common/src/msg.rs`:
+
+- `TdxAttestation` mirrors the Trust Authority evidence payload.
+- `TeeAttestation` wraps the TDX payload exchanged between verifier, notary, and prover.
+
+The `/session` request now accepts `teeAttestation`. Internally, `NotarizationSessionRequest` uses `#[serde(rename_all = "camelCase")]`, so Rust `tee_attestation` is JSON `teeAttestation`. The server stores this per-session flag and consumes it when the client upgrades to `/notarize`.
+
+The Notary server also has a `tee` config flag. When enabled, startup checks for `trustauthority-cli`. If the server is built with the `tee_quote` feature, `/info` can expose a cached initialization TDX quote.
+
+During a TEE-enabled notarization, the Notary sends its public key as Trust Authority user data. Clients can compare the extracted TDX report data with the Notary public key from `/info` to confirm that the quote is bound to the Notary identity they are using.
+
+The library helpers are:
+
+- `Verifier::send_tdx_attestation(...)`, which sends the extra TDX payload after normal notarization.
+- `Prover::notarize_with_tee(...)`, which receives the normal TLSN attestation, secrets, and the extra TDX payload.
+
+The WebSocket example lives at `crates/examples/tee/ws.rs`. It creates a session with `tee_attestation: Some(true)`, connects to `/notarize`, runs a TLSN request against a configurable target server, and prints or verifies the returned TDX quote.
+
+## Build Flags
+
+Build the Notary with `tee_quote` when you want `/info` to include the feature-gated initialization quote field:
+
+```bash
+cargo build --release --bin notary-server --features tee_quote
+```
+
+Without `tee_quote`, the Notary can still compile and serve sessions, but `/info` will not include the quote field.
+
+## Trust Authority Requirements
+
+TDX mode expects the Intel Trust Authority CLI in the runtime environment:
+
+```bash
+trustauthority-cli --help
+```
+
+Set the Trust Authority config path before starting the Notary. Both env var spellings are supported:
+
+```bash
+export PATH_TEE_CONFIG=/absolute/path/to/trustauthority-config.json
+export path_tee_config=/absolute/path/to/trustauthority-config.json
+```
+
+When TDX evidence is requested, the Notary runs a command equivalent to:
+
+```bash
+trustauthority-cli evidence --tdx -u <base64-report-data> -c "$PATH_TEE_CONFIG"
+```
+
+## Minimal Config
+
+Create a Notary config file on the host where the server will run:
+
+```yaml
+host: "0.0.0.0"
+port: 7047
+html_info: |
+  <body>
+    <h1>Notary Server {version}</h1>
+    <ul>
+      <li>public key: <pre>{public_key}</pre></li>
+      <li>git commit hash: {git_commit_hash}</li>
+      <li><a href="healthcheck">health check</a></li>
+      <li><a href="info">info</a></li>
+    </ul>
+  </body>
+
+concurrency: 32
+
+notarization:
+  max_sent_data: 8192
+  max_recv_data: 16384
+  timeout: 1800
+  private_key_path: "/absolute/path/to/notary.key"
+  signature_algorithm: secp256k1
+  allow_extensions: false
+
+tls:
+  enabled: false
+  private_key_path: null
+  certificate_path: null
+
+log:
+  level: DEBUG
+  filter: null
+  format: COMPACT
+
+auth:
+  enabled: false
+
+tee: true
+```
+
+Use a persistent `notarization.private_key_path` anywhere clients pin or compare the Notary public key. Leave `tls.enabled: false` only for local testing, trusted private networks, or deployments where TLS is terminated by a reverse proxy or load balancer.
+
+## Run The Notary
+
+Start with a config file:
+
+```bash
+export PATH_TEE_CONFIG=/absolute/path/to/trustauthority-config.json
+cargo run --release --bin notary-server --features tee_quote -- --config /absolute/path/to/config.yaml
+```
+
+Or bind with env vars:
+
+```bash
+export PATH_TEE_CONFIG=/absolute/path/to/trustauthority-config.json
+NS_HOST=0.0.0.0 \
+NS_PORT=7047 \
+NS_TEE=true \
+NS_NOTARIZATION__PRIVATE_KEY_PATH=/absolute/path/to/notary.key \
+cargo run --release --bin notary-server --features tee_quote
+```
+
+Check readiness:
+
+```bash
+curl http://<notary-host>:7047/healthcheck
+curl http://<notary-host>:7047/info | jq
+```
+
+`/info` should include the version, public key, and git commit hash. When `tee_quote` is enabled, it also includes a `quote` object. If TDX is unavailable, `quote` carries an error string instead of evidence.
+
+## Public Deployment Shape
+
+The current Livy deployment uses the same native Notary path behind an HTTPS front door:
+
+- native `notary-server` on `127.0.0.1:7047`
+- `notary-tee` proxy example on `127.0.0.1:7048`
+- nginx terminating TLS on `https://tlsn.livylabs.xyz`
+- `/session`, `/notarize`, `/info`, and `/healthcheck` routed to the native Notary service
+- `/api/v1/prove` routed to the proxy
+
+Observed build commands from the deployment scripts:
+
+```bash
+cargo build --release -p notary-server --features tee_quote --bin notary-server
+cargo build --release -p notary-tee --example proxy
+```
+
+Observed TDX-related service settings:
+
+```bash
+PATH_TEE_CONFIG=/home/livy/config.json
+NS_TEE=true
+TLSN_PROXY_TDX_CMD=sudo trustauthority-cli evidence --tdx -u '{reportdata_b64}' -c /home/livy/config.json > '{output}'
+```
+
+## Request TDX For A Session
+
+The client must set `teeAttestation: true` when creating the session:
+
+```bash
+curl -X POST "http://<notary-host>:7047/session" \
+  -H "content-type: application/json" \
+  -d '{
+    "clientType": "Websocket",
+    "maxSentData": 8192,
+    "maxRecvData": 16384,
+    "teeAttestation": true
+  }'
+```
+
+Then use the returned `sessionId` at:
+
+```text
+ws://<notary-host>:7047/notarize?sessionId=<session-id>
+```
+
+If `teeAttestation` is omitted or false, the normal TLSN notarization still runs, but the Notary will not send the extra TDX attestation message.
+
+## Docker Notes
+
+Build the normal Notary image:
+
+```bash
+docker build . -t notary-server:local -f crates/notary/server/notary-server.Dockerfile
+```
+
+Run it with the Notary config, Trust Authority config, and persistent Notary key mounted:
+
+```bash
+docker run --init \
+  -p 7047:7047 \
+  -e PATH_TEE_CONFIG=/root/.notary/trustauthority-config.json \
+  -v /absolute/path/to/config.yaml:/root/.notary/config.yaml \
+  -v /absolute/path/to/trustauthority-config.json:/root/.notary/trustauthority-config.json \
+  -v /absolute/path/to/notary.key:/root/.notary/notary.key \
+  notary-server:local \
+  --config /root/.notary/config.yaml
+```
+
+Make sure the image contains `trustauthority-cli` if you expect real TDX evidence from inside the container.
+
+## Troubleshooting
+
+- `No Trust Authority config found`: set `PATH_TEE_CONFIG` or `path_tee_config`.
+- `trustauthority is not available`: install `trustauthority-cli` in the runtime environment or container.
+- `/info` has no `quote` field: rebuild `notary-server` with `--features tee_quote`.
+- `/info.quote.error` says TDX is disabled: set `tee: true` or `NS_TEE=true`.
+- The prover hangs waiting for TDX: make sure the session request used `teeAttestation: true` and the prover is calling `notarize_with_tee`.
+- Report data mismatch: compare the quote report data against the Notary public key from `/info`; this branch binds per-notarization report data to that public key.

@@ -1,0 +1,37 @@
+---
+title: Properties
+description: Trust, privacy, and security properties provided by the TEE design.
+---
+
+## Trust Properties
+
+TEE attestation lets a client check that the Notary is running in an Intel TDX environment and that the TDX quote is bound to the Notary public key exposed by `/info`.
+
+Compared with a non-TEE Notary, the client no longer has to rely only on service identity and operator claims. The client can verify hardware-backed evidence for the environment that produced the extra TDX attestation payload.
+
+The design still trusts the Intel TDX trust chain, Intel Trust Authority evidence, the expected Notary binary or deployment policy, and the verifier's local policy configuration.
+
+## Privacy Properties
+
+The TEE is intended to reduce what the host operator can learn or tamper with while the Notary runs. TLSNotary's normal transcript privacy model still applies: clients disclose only the committed and revealed portions required by the proof flow.
+
+The deployment can still reveal metadata such as IP addresses, timing, request sizes, target hostnames, and whether a session requested TEE attestation.
+
+The TDX evidence itself is not private. It is meant to be shared with verifiers and may include measurements, policy-relevant fields, and report data binding the quote to the Notary key.
+
+## Security Properties
+
+- Integrity:
+  verifiers can reject evidence that does not match the expected TDX trust chain or deployment policy.
+- Authenticity:
+  the Notary public key is sent as Trust Authority user data, so clients can compare extracted report data against the public key returned by `/info`.
+- Session behavior:
+  `teeAttestation: true` is stored per session, and the Notary emits the extra TDX attestation message during `/notarize`.
+- Isolation:
+  TDX reduces exposure to the host environment, subject to the hardware, firmware, and Trust Authority assumptions.
+
+## Non-Goals And Limitations
+
+TEE attestation does not prove that the remote target server behaved honestly, does not hide network metadata, and does not replace standard TLS certificate validation or TLSNotary verification.
+
+Operational mistakes can still break trust: wrong Trust Authority config, missing `tee_quote`, ephemeral Notary keys where clients expect pinning, or verifier policy that accepts the wrong measurement.

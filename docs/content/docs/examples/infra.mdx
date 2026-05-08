@@ -1,0 +1,117 @@
+---
+title: Deployed Service Surface
+description: Public endpoints and runtime layout for the deployed TDX-backed Notary.
+---
+
+## Purpose
+
+This page describes what the deployed infrastructure exposes to examples and clients. For Terraform apply, destroy, DNS, and bootstrap commands, use [Terraform GCP Deployment](/docs/deployment/terraform-gcp).
+
+## Architecture
+
+The deployment creates a Google Cloud network and a TDX-enabled VM. The native Notary server runs on port `7047`, and the TEE proxy used for `/api/v1/prove` runs locally on port `7048`. Nginx terminates HTTPS and routes public requests to the correct local service.
+
+```text
+Google Cloud Platform
+├─ VPC network
+│  ├─ Subnet: 10.0.1.0/24
+│  └─ Cloud NAT
+└─ TDX instance
+   ├─ Ubuntu 24.04 LTS
+   ├─ TLS Notary server, local port 7047
+   ├─ notary-tee proxy, local port 7048
+   ├─ Intel Trust Authority CLI and config
+   ├─ systemd service management
+   └─ nginx HTTPS reverse proxy
+```
+
+## Public Endpoint
+
+The test deployment is intended to be reached at:
+
+```text
+https://tlsn.livylabs.xyz
+```
+
+Health check:
+
+```bash
+curl https://tlsn.livylabs.xyz/healthcheck
+```
+
+Expected response:
+
+```text
+Ok
+```
+
+## Routes
+
+| Endpoint | Upstream | Purpose |
+| --- | --- | --- |
+| `/healthcheck` | `127.0.0.1:7047` | Service health status. |
+| `/info` | `127.0.0.1:7047` | Server metadata, public key, git hash, and TDX quote payload when enabled. |
+| `/` | `127.0.0.1:7047` | Notary server info page. |
+| `/session` | `127.0.0.1:7047` | Create a notarization session. |
+| `/notarize` | `127.0.0.1:7047` | WebSocket notarization flow. |
+| `/api/v1/prove` | `127.0.0.1:7048` | Proxy-backed prove flow. |
+| `/api/v1/jobs/<job_id>/attestation` | `127.0.0.1:7048` | Download job attestation output. |
+| `/api/v1/jobs/<job_id>/secrets` | `127.0.0.1:7048` | Download job secrets output. |
+
+## Example Configuration
+
+Use these values when an example should target the deployed Notary:
+
+```bash
+NOTARY_SCHEME=https
+NOTARY_HOST=tlsn.livylabs.xyz
+NOTARY_PORT=443
+USE_FIXTURE_CA=false
+```
+
+For a full example command, see [Running Examples Against The Deployed Notary](/docs/deployment/running-examples).
+
+## Runtime Files
+
+| File | Location | Purpose |
+| --- | --- | --- |
+| TLSN source checkout | `/home/livy/src/tlsn/` | Source used for the deployed build. |
+| Notary binary | `/home/livy/src/tlsn/target/release/notary-server` | Compiled Notary server. |
+| Proxy binary | `/home/livy/src/tlsn/target/release/examples/proxy` | Compiled `notary-tee` proxy. |
+| Notary config | `/home/livy/tls-notary-config/config.toml` | Runtime Notary configuration. |
+| Signing key | `/home/livy/tls-notary-config/notary-signing-key.pem` | Persistent Notary signing key. |
+| Intel TA config | `/home/livy/config.json` | Trust Authority configuration. |
+| Notary service | `/etc/systemd/system/tls-notary-server.service` | systemd unit for the Notary. |
+| Proxy service | `/etc/systemd/system/tls-notary-proxy.service` | systemd unit for the proxy. |
+| Nginx config | `/etc/nginx/sites-available/tlsn` | HTTPS reverse proxy configuration. |
+| SSL certificates | `/etc/letsencrypt/live/${domain_name}/` | Let's Encrypt certificates. |
+
+## Operational Checks
+
+Check cloud-init status:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo cloud-init status --long"
+```
+
+Check service state:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="systemctl is-active tls-notary-server tls-notary-proxy nginx"
+```
+
+Follow service logs:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo journalctl -u tls-notary-server -u tls-notary-proxy -f"
+```
+
+Check HTTPS certificate state:
+
+```bash
+gcloud compute ssh test-notary-instance --zone=us-central1-a --project=livy-infra \
+  --command="sudo certbot certificates"
+```

@@ -11,7 +11,7 @@ terraform apply -var-file="environments/test.tfvars" -auto-approve
 
 Terraform creates the infrastructure, writes the cloud-init payload to the VM, and cloud-init runs the bootstrap scripts automatically. Normal deployments should not require SSHing into the instance or running setup scripts by hand.
 
-For the exact step-by-step deployment instructions, see [instructions.md](instructions.md).
+For the full step-by-step deployment instructions, see [instructions.md](instructions.md). The docs app version is [Terraform GCP Deployment](docs/content/docs/deployment/terraform-gcp.mdx).
 
 ## What It Deploys
 

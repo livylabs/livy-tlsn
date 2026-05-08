@@ -1,0 +1,35 @@
+---
+title: Assumptions
+description: Explicit assumptions and trust boundaries for the TEE deployment.
+---
+
+## Hardware And Platform
+
+The Notary is expected to run on an Intel TDX-capable host with TDX enabled by the cloud provider and kernel. Firmware, microcode, and platform services must correctly enforce TDX isolation and expose valid quote material.
+
+The host operator may control infrastructure around the VM, including networking, logs, service restarts, and deployment configuration. TDX is used to reduce trust in that operator for the Notary runtime, not to remove all operational trust.
+
+## Trust Authority
+
+The runtime environment must include `trustauthority-cli` and a valid Trust Authority config file referenced by `PATH_TEE_CONFIG` or `path_tee_config`.
+
+Verifiers assume Intel Trust Authority evidence is checked against the correct trust anchors, policies, and freshness requirements. If the verifier accepts the wrong policy, the quote can be valid but still not meaningful for the intended deployment.
+
+## Cryptography
+
+TLSNotary signatures, transcript commitments, TLS certificate validation, and the Trust Authority evidence chain are assumed to use secure algorithms and correct implementations.
+
+Clients that pin or compare Notary identity assume the Notary uses a persistent private key. If the Notary key changes unexpectedly, clients should treat the new public key as a new identity and re-check the associated TDX evidence.
+
+## Network And Adversary Model
+
+A network attacker may observe, delay, drop, or replay traffic. TLS, WebSocket transport security, TLSNotary verification, and freshness policy are responsible for detecting or limiting those attacks.
+
+A host attacker may be able to restart services, block Trust Authority calls, withhold evidence, or serve stale configuration. They should not be able to forge valid TDX evidence for an unexpected runtime that still passes the verifier's policy.
+
+## Operational Assumptions
+
+- `tee: true` or `NS_TEE=true` is set when TDX evidence is expected.
+- `notary-server` is built with `--features tee_quote` when `/info` should expose the initialization quote.
+- The Notary key path is persistent for deployments where clients compare the public key.
+- Verifiers are configured with the expected Trust Authority policy and Notary identity checks.

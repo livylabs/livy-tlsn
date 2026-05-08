@@ -1,0 +1,93 @@
+---
+title: tlsn
+description: Feature breakdown for the TEE-enhanced changes in the tlsn repository.
+---
+
+## Repo Scope
+
+- Repository: [`livylabs/tlsn`](https://github.com/livylabs/tlsn)
+- Implementation branch: `tee_dev`
+- Key files inspected:
+  - `crates/examples/tee/ws.rs`
+  - `crates/notary/server/src/service.rs`
+  - `crates/notary/server/src/server.rs`
+  - `crates/notary/server/src/tee_tdx.rs`
+  - `crates/notary/server/notary-tee/proxy.rs`
+  - `crates/notary/server/notary-tee/README.md`
+
+## `/prove`
+
+### Prover Side
+
+- In the inspected code, the `/prove` flow is implemented through the `notary-tee` proxy rather than a separate public prover CLI.
+- The caller sends an HTTP request to the proxy, and the proxy performs the TLSN notarization internally against the upstream notary and target server.
+- Relevant files and modules:
+  - `crates/notary/server/notary-tee/proxy.rs`
+  - `crates/notary/server/notary-tee/README.md`
+- Inputs and outputs observed in the proxy-backed flow:
+  - request bytes are captured and hashed
+  - response bytes are captured and hashed
+  - raw TLSN attestation and secrets artifacts are written per job
+  - JSON response includes `job_id` and `tdx_attestation`
+
+### Notary Side
+
+- `POST /api/v1/prove` creates a job directory, runs notarization, serializes `attestation.tlsn` and `secrets.tlsn`, and computes hashes for both artifacts.
+- The proxy derives `reportdata` from a commitment over the input and output hashes plus a nonce, then invokes a TDX quote command.
+- The response is wrapped in JSON and enriched with `tdx_attestation`.
+- Relevant files and modules:
+  - `crates/notary/server/notary-tee/proxy.rs`
+  - `crates/notary/server/notary-tee/README.md`
+- TEE-specific behavior:
+  - per-job TDX evidence is produced
+  - attestation and secrets are downloadable later from `/api/v1/jobs/<job_id>/(attestation|secrets)`
+
+## `/notarize`
+
+### Prover Side
+
+- The WebSocket example lives at `crates/examples/tee/ws.rs`.
+- The example creates a `/session`, upgrades to `/notarize` over WebSocket, performs the MPC-TLS request to the target server, commits the full transcript, and then requests notarization.
+- In `tee_dev`, the example requests TEE attestation and uses `prover.notarize_with_tee(...)`.
+- Outputs:
+  - `ws-test.attestation.tlsn`
+  - `ws-test.secrets.tlsn`
+- TEE-specific behavior:
+  - `notarize_with_tee` returns the standard TLSN attestation and secrets plus an extra TDX attestation message
+  - the example can locally verify the returned TDX quote
+
+### Notary Side
+
+- `/session` stores whether TEE attestation is enabled for the session via `tee_attestation` in `NotarizationSessionRequest`.
+- `SessionConfig` carries `enable_tee`, which is then used during the `/notarize` flow.
+- When TEE is enabled, the notary calls `tee_attestation(...)` and sends a `TeeAttestation` message back to the prover after notarization.
+- `run_server(...)` also exposes an initialization quote via `/info` when the server is started with TEE enabled.
+- Relevant files and modules:
+  - `crates/notary/server/src/service.rs`
+  - `crates/notary/server/src/server.rs`
+  - `crates/notary/server/src/tee_tdx.rs`
+- TEE-specific behavior:
+  - per-session TDX evidence can be attached to the notarization flow
+  - startup can publish a cached initialization quote for discovery and inspection
+
+## Cross-Cutting Changes
+
+- Shared protocol updates:
+  - `crates/common/src/msg.rs` defines the shared TDX attestation message shape
+  - `TdxAttestation` mirrors the Intel Trust Authority evidence payload
+  - `TeeAttestation` wraps the TDX payload sent from verifier/notary to prover
+  - `NotarizationSessionRequest` carries a `tee_attestation` flag, serialized as JSON `teeAttestation`
+  - prover and verifier exchange the additional `TeeAttestation` message after normal notarization
+- Shared crypto or attestation logic:
+  - TDX evidence is generated in `tee_tdx.rs`
+  - the notary public key is sent as Trust Authority user data
+  - clients can compare extracted TDX report data against the notary public key from `/info`
+- Configuration or CLI changes:
+  - `tee` is now a notary server config flag
+  - `tee_quote` gates the `/info` initialization quote field
+  - the notary reads Trust Authority config from `PATH_TEE_CONFIG` or `path_tee_config`
+- Operational implications:
+  - the public notary can serve both TEE-enabled and non-TEE sessions from the same example path
+  - `/prove` and `/notarize` expose different user-facing surfaces: REST proxy for `/prove`, session + WebSocket upgrade for `/notarize`
+
+See the [TDX Notary runbook](/docs/deployment/tdx-notary) for runtime config, Trust Authority setup, and troubleshooting.

@@ -1,0 +1,33 @@
+---
+title: Overview
+description: Documentation map for the Livy Labs TLSNotary TEE work.
+---
+
+This site is structured to document the TEE-focused work across the following repositories:
+
+- [`tlsn`](https://github.com/livylabs/tlsn) using the `tee_dev` branch for implementation details, examples, and deployment notes.
+- [Infra (`livy-tlsn`)](https://github.com/livylabs/livy-tlsn) for Terraform, GCP deployment, HTTPS routing, and user-facing service surfaces.
+
+## Documentation Map
+
+- [Repositories & Branches](/docs/repositories-and-branches)
+- [Features](/docs/features)
+- [Examples](/docs/examples)
+- [Deployment](/docs/deployment)
+- [Trust, Privacy & Security](/docs/security)
+- [TEE vs No TEE](/docs/benchmarks/tlsn-tee-vs-non-tee)
+- [LLM Docs](/docs/llm-context)
+
+## Intended Outcome
+
+These pages answer the following questions:
+
+1. What was built for `/prove` and `/notarize`, on both the Notary side and the Prover side?
+2. Which examples exist, what do they do, and how are they run?
+3. How is the TEE-enhanced Notary deployed in TDX so the examples can run against it?
+4. What trust, privacy, and security properties does the TEE design provide, and how are those properties achieved?
+5. What performance characteristics should be measured for TEE-enabled execution?
+
+## Scope
+
+The docs focus on the `tee_dev` implementation, the deployed Livy TLSN service, and the TDX Notary runbook. The current notarization-only measurement table comes from the `benchmark` branch.

@@ -1,0 +1,80 @@
+---
+title: Running Examples Against The Deployed Notary
+description: Wiring the example flows to a live TDX-backed Notary deployment.
+---
+
+## Goal
+
+Run the public example flows against the HTTPS deployment at `tlsn.livylabs.xyz` instead of a local notary.
+
+## Required Inputs
+
+- Notary endpoint:
+  `https://tlsn.livylabs.xyz`
+- Certificates or trust anchors:
+  use the system trust store, which is why the public examples set `USE_FIXTURE_CA=false`
+- Attestation verifier configuration:
+  the `tee_dev` `tee_ws` example requests TEE attestation for the session
+- Example-specific environment variables:
+  - `NOTARY_SCHEME=https`
+  - `NOTARY_HOST=tlsn.livylabs.xyz`
+  - `NOTARY_PORT=443`
+
+## Update The Example Configuration
+
+- Which env vars need to change:
+  point the example at the deployed host instead of `127.0.0.1`
+- How to select the deployed Notary:
+  - scheme: `https`
+  - host: `tlsn.livylabs.xyz`
+  - port: `443`
+- How TEE evidence is requested:
+  `tee_ws` sends `teeAttestation: true` when it creates the Notary session.
+
+## Smoke Test
+
+Check the public deployment before running the full example:
+
+```bash
+curl https://tlsn.livylabs.xyz/healthcheck
+curl https://tlsn.livylabs.xyz/info
+```
+
+Expected:
+
+- `/healthcheck` returns `Ok`
+- `/info` returns server metadata and, when TEE is enabled on the deployment, the initialization quote payload
+
+## Per-Example Notes
+
+### `tee_ws` Against The Public Notary
+
+This command runs [`crates/examples/tee/ws.rs`](https://github.com/livylabs/tlsn/blob/tee_dev/crates/examples/tee/ws.rs) against the public Notary:
+
+```bash
+NOTARY_SCHEME=https \
+NOTARY_HOST=tlsn.livylabs.xyz \
+NOTARY_PORT=443 \
+TARGET_HOST=api.weather.gov \
+TARGET_PORT=443 \
+TARGET_SERVER_NAME=api.weather.gov \
+TARGET_URI=/points/37.7749,-122.4194 \
+USE_FIXTURE_CA=false \
+MAX_SENT_DATA=4096 \
+MAX_RECV_DATA=16384 \
+cargo run -p tlsn-examples --example tee_ws
+```
+
+The example asks the server to include the extra TDX attestation in the notarization flow.
+
+### `/prove` Surface On The Public Deployment
+
+The public HTTPS deployment also exposes the proxy-backed `/prove` flow:
+
+- request path:
+  `POST https://tlsn.livylabs.xyz/api/v1/prove`
+- artifact download paths:
+  - `GET https://tlsn.livylabs.xyz/api/v1/jobs/<job_id>/attestation`
+  - `GET https://tlsn.livylabs.xyz/api/v1/jobs/<job_id>/secrets`
+
+Use the proxy-backed `/prove` surface when the caller wants a REST job API rather than the lower-level `/session` plus `/notarize` WebSocket flow.

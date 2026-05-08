@@ -1,0 +1,51 @@
+---
+title: Cryptographic Design
+description: How the TEE-backed design binds trust to the Notary and its evidence.
+---
+
+## High-Level Flow
+
+1. The Notary starts with `tee: true` and a persistent signing key.
+2. When built with `tee_quote`, `/info` can expose a cached initialization quote.
+3. A client creates a session with `teeAttestation: true`.
+4. The prover upgrades to `/notarize` and completes the normal TLSNotary flow.
+5. After the TLSN attestation, the Notary sends a `TeeAttestation` payload containing TDX evidence.
+6. The client verifies the TLSN artifacts and checks the TDX evidence against its policy.
+
+## Binding To The Notary Key
+
+The key binding is the central extra check. The Notary sends its public key as Trust Authority user data when requesting evidence. The verifier extracts the report data from the returned quote and compares it with the Notary public key returned by `/info`.
+
+This ties the hardware-backed evidence to the Notary identity used for the notarization session. Without this check, a verifier could validate a TDX quote but fail to connect that quote to the specific Notary key it trusted for TLSN verification.
+
+## Proof And Notarization Verification Impact
+
+The TEE flow adds evidence to verify, but it does not replace standard TLSNotary verification. Verifiers still need to validate the TLSN attestation, secrets, transcript commitments, and the target server's TLS identity according to the normal proof policy.
+
+The additional TDX checks are:
+
+- verify the Trust Authority evidence chain
+- verify the expected TDX measurement or deployment policy
+- verify freshness according to the verifier's policy
+- verify the Notary public key binding in report data
+
+## Cryptographic Artifacts
+
+- TLSN attestation:
+  written by the example as `ws-test.attestation.tlsn`
+- TLSN secrets:
+  written by the example as `ws-test.secrets.tlsn`
+- TDX evidence:
+  returned in the extra `TeeAttestation` message
+- Notary public key:
+  exposed by `/info` and used as Trust Authority user data
+- Trust Authority config:
+  selected by `PATH_TEE_CONFIG` or `path_tee_config`
+
+## Failure Cases
+
+If the public key binding is missing or mismatched, the verifier should reject the TDX evidence for that Notary session.
+
+If Trust Authority evidence is stale, invalid, or generated under the wrong policy, the verifier should reject the TEE claim while still treating the TLSN artifacts according to the application's non-TEE policy.
+
+If `teeAttestation` is not set on the session, the Notary will run the normal TLSN flow and will not send the extra TDX attestation message.

@@ -1,0 +1,58 @@
+---
+title: TEE vs No TEE
+description: Notarization-only TEE overhead measurements from the tlsn benchmark branch.
+---
+
+## Source Material
+
+- Repository: [`livylabs/tlsn`](https://github.com/livylabs/tlsn)
+- Branch: `benchmark`
+- Metric:
+  `NOTARIZATION_MS`
+- Sample size:
+  10 runs per mode
+
+These measurements were collected from the benchmark branch. The implementation docs elsewhere use `tee_dev` as the source of truth.
+
+## Test Matrix
+
+- `TEE no verify`:
+  notarization with TDX attestation requested, excluding local quote verification time.
+- `No TEE`:
+  normal TLSN notarization without the extra TDX attestation message.
+
+## Methodology
+
+Each row below is one notarization run. The values are elapsed milliseconds for the notarization phase only, not full end-to-end request time.
+
+## Per-Run Results
+
+| Run | TEE no verify (ms) | No TEE (ms) | Delta (ms) |
+| ---: | ---: | ---: | ---: |
+| 1 | 1999 | 1625 | 374 |
+| 2 | 1716 | 1516 | 200 |
+| 3 | 1824 | 3320 | -1496 |
+| 4 | 1736 | 1529 | 207 |
+| 5 | 1660 | 1515 | 145 |
+| 6 | 1847 | 1639 | 208 |
+| 7 | 1945 | 1604 | 341 |
+| 8 | 1708 | 1551 | 157 |
+| 9 | 2152 | 1553 | 599 |
+| 10 | 1852 | 1548 | 304 |
+
+## Summary Statistics
+
+| Mode | Average (ms) | Median (ms) | P90 (ms) |
+| --- | ---: | ---: | ---: |
+| TEE no verify | 1843.9 | 1835.5 | 2014.3 |
+| No TEE | 1740.0 | 1552.0 | 1807.1 |
+
+## Overhead
+
+| Comparison | Average overhead | Percent overhead |
+| --- | ---: | ---: |
+| TEE no verify - No TEE | +103.9 ms | +5.97% |
+
+## Notes
+
+The No TEE series includes one high-latency outlier at run 3 (`3320 ms`). That outlier raises the No TEE average and P90, so the median comparison is also useful when reading this result.

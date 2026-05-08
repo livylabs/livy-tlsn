@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "index",
+    "repositories-and-branches",
+    "features",
+    "examples",
+    "deployment",
+    "security",
+    "benchmarks",
+    "llm-context"
+  ]
+}

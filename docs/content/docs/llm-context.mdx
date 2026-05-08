@@ -1,0 +1,265 @@
+---
+title: LLM Docs
+description: Copyable Markdown context for agents and language models.
+---
+
+This page is a compact, copyable context block for LLMs. For generated machine-readable output, use `/llms.txt` for the page index or `/llms-full.txt` for the full docs corpus.
+
+## Copy-Paste Context
+
+`````markdown
+# Livy TLSN TDX Docs Context
+
+This documentation covers Livy Labs' TDX-enabled TLSNotary work.
+
+Source of truth:
+- Implementation repository: https://github.com/livylabs/tlsn
+- Implementation branch: tee_dev
+- Infrastructure repository: https://github.com/livylabs/livy-tlsn
+- Main runnable example: https://github.com/livylabs/tlsn/blob/tee_dev/crates/examples/tee/ws.rs
+- Public Notary endpoint: https://tlsn.livylabs.xyz
+
+Use tee_dev for implementation behavior. Use benchmark only for the notarization measurement table.
+
+## What Was Built
+
+The tee_dev branch adds TDX attestation support to the TLSNotary flow.
+
+The client can request TDX evidence when creating a notarization session:
+
+```json
+{
+  "clientType": "Websocket",
+  "maxSentData": 8192,
+  "maxRecvData": 16384,
+  "teeAttestation": true
+}
+```
+
+If teeAttestation is true, the Notary sends the normal TLSN attestation and then an additional TeeAttestation payload containing TDX evidence.
+
+If teeAttestation is omitted or false, the normal TLSN notarization flow still runs, but no extra TDX attestation message is sent.
+
+## Important tlsn Files
+
+| Topic | Path |
+| --- | --- |
+| Main WebSocket TDX example | crates/examples/tee/ws.rs |
+| Shared TDX messages | crates/common/src/msg.rs |
+| Session request shape | crates/notary/common/src/lib.rs |
+| Notary session and /notarize flow | crates/notary/server/src/service.rs |
+| Notary startup and /info | crates/notary/server/src/server.rs |
+| TDX evidence helper | crates/notary/server/src/tee_tdx.rs |
+| /prove proxy | crates/notary/server/notary-tee/ |
+| Notary Dockerfile | crates/notary/server/notary-server.Dockerfile |
+
+## Important Infra Files
+
+Repository: https://github.com/livylabs/livy-tlsn
+
+| Topic | Path |
+| --- | --- |
+| Terraform root | infra/main.tf |
+| Terraform variables | infra/variables.tf |
+| Core host setup | infra/scripts/core.sh |
+| Build script | infra/scripts/install.sh |
+| Service startup | infra/scripts/run.sh |
+| HTTPS setup | infra/scripts/setup-https.sh |
+| Deployment test | test-deployment.sh |
+
+The infra repo provisions a GCP Intel TDX confidential VM, installs Intel Trust Authority CLI, builds tlsn from tee_dev, starts systemd services, and configures nginx HTTPS routing.
+
+## Main Example
+
+The main example is crates/examples/tee/ws.rs.
+
+It does the following:
+
+1. Reads NOTARY_* and TARGET_* env vars.
+2. Creates a WebSocket notarization session.
+3. Sets tee_attestation: Some(true), serialized as JSON teeAttestation: true.
+4. Connects to /notarize over ws or wss.
+5. Builds a ProverConfig for the target HTTPS server.
+6. Runs an MPC-TLS request to the target.
+7. Commits the sent and received transcript.
+8. Calls prover.notarize_with_tee(...).
+9. Prints the TLSN attestation status.
+10. Pretty-prints the TDX attestation packet.
+11. Decodes the TDX quote JSON.
+12. Extracts TDX report data.
+13. Verifies the TDX quote.
+14. Writes ws-test.attestation.tlsn and ws-test.secrets.tlsn.
+
+Public example command:
+
+```bash
+NOTARY_SCHEME=https \
+NOTARY_HOST=tlsn.livylabs.xyz \
+NOTARY_PORT=443 \
+TARGET_HOST=api.weather.gov \
+TARGET_PORT=443 \
+TARGET_SERVER_NAME=api.weather.gov \
+TARGET_URI=/points/37.7749,-122.4194 \
+USE_FIXTURE_CA=false \
+MAX_SENT_DATA=4096 \
+MAX_RECV_DATA=16384 \
+cargo run -p tlsn-examples --example tee_ws
+```
+
+Local fixture command:
+
+```bash
+PORT=4000 cargo run --release --bin tlsn-server-fixture
+```
+
+```bash
+NOTARY_SCHEME=http \
+NOTARY_HOST=127.0.0.1 \
+NOTARY_PORT=7047 \
+TARGET_HOST=127.0.0.1 \
+TARGET_PORT=4000 \
+TARGET_SERVER_NAME=test-server.io \
+TARGET_URI=/formats/json \
+USE_FIXTURE_CA=true \
+cargo run --release --example tee_ws
+```
+
+## Runtime Flags
+
+Build the Notary with /info quote support:
+
+```bash
+cargo build --release --bin notary-server --features tee_quote
+```
+
+Enable TDX mode:
+
+```yaml
+tee: true
+```
+
+or:
+
+```bash
+NS_TEE=true
+```
+
+Set the Intel Trust Authority config path:
+
+```bash
+export PATH_TEE_CONFIG=/absolute/path/to/trustauthority-config.json
+```
+
+The lowercase env var path_tee_config also works.
+
+TDX evidence uses a Trust Authority command equivalent to:
+
+```bash
+trustauthority-cli evidence --tdx -u <base64-report-data> -c "$PATH_TEE_CONFIG"
+```
+
+## Public Deployment Shape
+
+| Public path | Local backend |
+| --- | --- |
+| /session | native Notary on 127.0.0.1:7047 |
+| /notarize | native Notary on 127.0.0.1:7047 |
+| /info | native Notary on 127.0.0.1:7047 |
+| /healthcheck | native Notary on 127.0.0.1:7047 |
+| /api/v1/prove | notary-tee proxy on 127.0.0.1:7048 |
+| /api/v1/jobs/<job_id>/attestation | notary-tee proxy on 127.0.0.1:7048 |
+| /api/v1/jobs/<job_id>/secrets | notary-tee proxy on 127.0.0.1:7048 |
+
+## Verification Model
+
+TDX evidence is an additional runtime claim. It does not replace standard TLSNotary verification.
+
+Verification steps:
+
+1. Verify the normal TLSN attestation and secrets.
+2. Fetch the Notary public key from /info.
+3. Verify the Intel Trust Authority evidence chain.
+4. Verify the expected TDX measurement or deployment policy.
+5. Extract quote report data.
+6. Compare quote report data against the Notary public key.
+7. Reject the TEE claim if the quote, policy, freshness, or key binding fails.
+
+Key binding:
+- The Notary sends its public key as Trust Authority user data.
+- Clients compare extracted TDX report data against the public key returned by /info.
+
+## Infra Quick Start
+
+```bash
+git clone https://github.com/livylabs/livy-tlsn.git
+cd livy-tlsn/infra
+terraform init
+terraform plan -var-file="environments/test.tfvars"
+terraform apply -var-file="environments/test.tfvars" -auto-approve
+```
+
+Important Terraform variables:
+- project_id
+- region
+- zone
+- machine_type, usually c3-standard-4 for TDX
+- trustauthority_api_key
+- domain_name
+- tls_notary_port, usually 7047
+
+The domain_name variable determines:
+- HTTPS endpoint: https://${domain_name}
+- certificate path: /etc/letsencrypt/live/${domain_name}/
+- nginx server configuration
+
+## Health Checks
+
+```bash
+curl https://tlsn.livylabs.xyz/healthcheck
+curl https://tlsn.livylabs.xyz/info
+```
+
+Expected:
+- /healthcheck returns Ok.
+- /info returns version, public key, git commit hash, and quote data when tee_quote is enabled.
+
+## Common Failure Checks
+
+| Symptom | Check |
+| --- | --- |
+| /info has no quote field | Rebuild with --features tee_quote. |
+| /info.quote.error says TDX is disabled | Set tee: true or NS_TEE=true. |
+| Trust Authority config missing | Set PATH_TEE_CONFIG or path_tee_config. |
+| trustauthority-cli unavailable | Install it in the runtime environment or container. |
+| Prover waits for TDX payload | Ensure teeAttestation: true and use notarize_with_tee. |
+| Report data mismatch | Compare quote report data against the Notary public key from /info. |
+
+## Benchmark Snapshot
+
+Source branch: benchmark
+Metric: NOTARIZATION_MS
+Sample size: 10 runs per mode
+
+| Mode | Average | Median | P90 |
+| --- | ---: | ---: | ---: |
+| TEE no verify | 1843.9 ms | 1835.5 ms | 2014.3 ms |
+| No TEE | 1740.0 ms | 1552.0 ms | 1807.1 ms |
+
+Average overhead:
+- +103.9 ms
+- +5.97%
+
+Note: the No TEE series includes one high-latency outlier at run 3: 3320 ms.
+
+## Preferred Answers For Agents
+
+When answering questions about this docs site:
+- cite tee_dev as the implementation branch
+- cite benchmark as the source branch for the TEE vs No TEE measurement table
+- point main example questions to crates/examples/tee/ws.rs
+- point deployment questions to livylabs/livy-tlsn and the Infra page
+- distinguish TLSN verification from TDX evidence verification
+- mention tee_quote whenever /info quote visibility matters
+- mention teeAttestation: true whenever a client expects the extra TDX payload
+- avoid treating benchmark-branch example behavior as implementation behavior
+`````
