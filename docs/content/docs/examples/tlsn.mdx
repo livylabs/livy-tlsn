@@ -400,14 +400,65 @@ It also prints the TDX attestation JSON, verifies the quote, and prints the extr
 
 ## `/prove` Example Surface
 
-The inspected `tlsn` repo exposes `/prove` through the `notary-tee` proxy rather than through `tee_ws`.
+The deployed Livy `/api/v1/prove` endpoint starts a proof job through the
+`notary-tee` proxy. The proxy runs the TLSN prover internally, talks to the
+configured upstream Notary, fetches the requested HTTPS URL, stores the TLSN
+artifacts, and returns a `job_id`.
 
-- Relevant path:
-  `crates/notary/server/notary-tee/`
-- Entry surface:
-  `POST /api/v1/prove`
-- Follow-up artifacts:
-  - `/api/v1/jobs/<job_id>/attestation`
-  - `/api/v1/jobs/<job_id>/secrets`
+Source:
 
-The public `/prove` surface is deployed by the [Infra repository](https://github.com/livylabs/livy-tlsn); this page focuses on the `tlsn` repository example code.
+- API implementation:
+  `crates/notary/server/notary-tee/proxy.rs`
+- Runnable wrapper:
+  `crates/notary/server/notary-tee/examples/proxy.rs`
+
+### Start A Proof Job
+
+```bash
+curl -sS -X POST "https://tlsn.livylabs.xyz/api/v1/prove" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://data-api.binance.vision/api/v3/exchangeInfo?symbol=ETHUSDC"
+  }'
+```
+
+Example response shape:
+
+```json
+{
+  "job_id": "3fc3e18cccfb167f6ff9bafddbc6ccd4",
+  "attestation_hash_hex": "...",
+  "secrets_hash_hex": "...",
+  "tdx_attestation": {
+    "...": "..."
+  }
+}
+```
+
+### Download The TLSN Artifacts
+
+Use the returned `job_id` to download the generated TLSN attestation and secrets:
+
+```bash
+JOB_ID="3fc3e18cccfb167f6ff9bafddbc6ccd4"
+
+curl -fL -sS "https://tlsn.livylabs.xyz/api/v1/jobs/${JOB_ID}/attestation" \
+  --output "attestation-${JOB_ID}.tlsn"
+
+curl -fL -sS "https://tlsn.livylabs.xyz/api/v1/jobs/${JOB_ID}/secrets" \
+  --output "secrets-${JOB_ID}.tlsn"
+```
+
+### One-Line Downloads
+
+```bash
+curl -fL -sS "https://tlsn.livylabs.xyz/api/v1/jobs/3fc3e18cccfb167f6ff9bafddbc6ccd4/attestation" --output "attestation-3fc3e18cccfb167f6ff9bafddbc6ccd4.tlsn"
+curl -fL -sS "https://tlsn.livylabs.xyz/api/v1/jobs/3fc3e18cccfb167f6ff9bafddbc6ccd4/secrets" --output "secrets-3fc3e18cccfb167f6ff9bafddbc6ccd4.tlsn"
+```
+
+### Notes
+
+- The `url` must be HTTPS.
+- `POST /api/v1/prove` is exposed by the deployed Livy `notary-tee` proxy.
+- This is different from the lower-level `tee_ws` example, which uses `/session` and `/notarize` directly.
+- The artifact endpoints return raw `.tlsn` files.
